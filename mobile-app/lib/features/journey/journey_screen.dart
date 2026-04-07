@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -113,61 +116,135 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Future<void> _showSetDestinationDialog(String label) async {
-    final latController = TextEditingController();
-    final lngController = TextEditingController();
+    final addressController = TextEditingController();
+    bool isSearching = false;
+    String? errorText;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text('Set $label location'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Enter the coordinates for your $label destination. '
-                'You can update this later in settings.',
-                style: Theme.of(context).textTheme.bodyMedium,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Set $label location'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Type your $label address and we\'ll find it for you.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: addressController,
+                    decoration: InputDecoration(
+                      labelText: 'Address',
+                      hintText: 'e.g. 123 Main St, City',
+                      prefixIcon: const Icon(Icons.location_on_outlined),
+                      errorText: errorText,
+                      suffixIcon: isSearching
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : null,
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) {
+                      // Allow pressing enter to save
+                      Navigator.of(context).pop(true);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.my_location,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () async {
+                            setDialogState(() => isSearching = true);
+                            try {
+                              final locationService =
+                                  context.read<LocationService>();
+                              final pos =
+                                  await locationService.getCurrentLocation();
+                              if (pos != null) {
+                                addressController.text =
+                                    'Current location (${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)})';
+                              }
+                            } catch (_) {
+                              setDialogState(() =>
+                                  errorText = 'Could not get current location');
+                            } finally {
+                              setDialogState(() => isSearching = false);
+                            }
+                          },
+                          child: Text(
+                            'Use my current location',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: latController,
-                decoration: const InputDecoration(
-                  labelText: 'Latitude',
-                  hintText: 'e.g. 48.8566',
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: lngController,
-                decoration: const InputDecoration(
-                  labelText: 'Longitude',
-                  hintText: 'e.g. 2.3522',
+                FilledButton(
+                  onPressed: isSearching
+                      ? null
+                      : () => Navigator.of(context).pop(true),
+                  child: const Text('Save'),
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Save'),
-            ),
-          ],
+              ],
+            );
+          },
         );
       },
     );
 
-    if (result == true) {
-      final lat = double.tryParse(latController.text);
-      final lng = double.tryParse(lngController.text);
+    if (result == true && addressController.text.isNotEmpty) {
+      final address = addressController.text;
+
+      // Check if it's "Current location (lat, lng)" format
+      final currentLocRegex =
+          RegExp(r'Current location \(([-\d.]+), ([-\d.]+)\)');
+      final match = currentLocRegex.firstMatch(address);
+
+      double? lat;
+      double? lng;
+
+      if (match != null) {
+        lat = double.tryParse(match.group(1)!);
+        lng = double.tryParse(match.group(2)!);
+      } else {
+        // Use geocoding to convert address to coordinates
+        try {
+          final locations = await _geocodeAddress(address);
+          if (locations != null) {
+            lat = locations.$1;
+            lng = locations.$2;
+          }
+        } catch (_) {
+          // Geocoding failed
+        }
+      }
 
       if (lat != null && lng != null) {
         final key = label.toLowerCase();
@@ -181,14 +258,44 @@ class _JourneyScreenState extends State<JourneyScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid coordinates')),
+            const SnackBar(
+                content: Text('Could not find that address. Please try again.')),
           );
         }
       }
     }
 
-    latController.dispose();
-    lngController.dispose();
+    addressController.dispose();
+  }
+
+  /// Convert an address string to lat/lng coordinates using geocoding.
+  Future<(double, double)?> _geocodeAddress(String address) async {
+    try {
+      // Use the geocoding package if available, otherwise use a simple
+      // HTTP-based geocoding with OpenStreetMap Nominatim (free, no API key).
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/search'
+        '?q=${Uri.encodeComponent(address)}'
+        '&format=json&limit=1',
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {'User-Agent': 'SafeCircle-App'},
+      );
+      if (response.statusCode != 200) return null;
+      final results = jsonDecode(response.body) as List;
+
+      if (results.isNotEmpty) {
+        final first = results[0] as Map<String, dynamic>;
+        final lat = double.parse(first['lat'] as String);
+        final lng = double.parse(first['lon'] as String);
+        return (lat, lng);
+      }
+    } catch (e) {
+      debugPrint('Geocoding failed: $e');
+    }
+    return null;
   }
 
   @override
