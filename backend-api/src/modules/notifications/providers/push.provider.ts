@@ -36,12 +36,24 @@ export class PushProvider implements NotificationProvider {
         const serviceAccountPath = this.config.get<string>(
           'FIREBASE_SERVICE_ACCOUNT_PATH',
         );
+        const clientEmail = this.config.get<string>('FCM_CLIENT_EMAIL');
+        const privateKey = this.config.get<string>('FCM_PRIVATE_KEY');
 
         if (serviceAccountPath) {
+          // Option 1: Use service account JSON file
           // eslint-disable-next-line @typescript-eslint/no-var-requires
           const serviceAccount = require(serviceAccountPath);
           admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
+          });
+        } else if (clientEmail && privateKey) {
+          // Option 2: Use individual env vars (for Railway/cloud deploys)
+          admin.initializeApp({
+            credential: admin.credential.cert({
+              projectId,
+              clientEmail,
+              privateKey: privateKey.replace(/\\n/g, '\n'),
+            }),
           });
         } else {
           // Fall back to application default credentials

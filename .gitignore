@@ -17,6 +17,11 @@ out/
 .env.production.local
 !.env.example
 
+# ── Secrets / Service Accounts ───────────────────
+*-service-account.json
+firebase-*.json
+*credentials*.json
+
 # ── IDE ──────────────────────────────────────────
 .idea/
 .vscode/
