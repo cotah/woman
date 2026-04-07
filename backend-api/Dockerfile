@@ -1,42 +1,31 @@
-# ── Stage 1: Install ALL dependencies (including dev) ──
-FROM node:20-alpine AS deps
+# ── Stage 1: Install ALL dependencies ────────────
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# ── Stage 2: Build ───────────────────────────────
-FROM node:20-alpine AS build
-
-WORKDIR /app
-
-COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
 
-# Build the NestJS app (needs @nestjs/cli from devDependencies)
-RUN npm run build && ls -la dist/
+# Build NestJS app
+RUN npm run build
 
-# ── Stage 3: Production (only prod dependencies) ─
-FROM node:20-alpine AS production
+# Verify build output exists
+RUN ls -la dist/main.js || (echo "BUILD FAILED - dist/main.js not found" && exit 1)
+
+# ── Stage 2: Production ─────────────────────────
+FROM node:20-alpine
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -S appuser -u 1001 -G appgroup
-
-# Install only production dependencies
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-# Copy built app
+# Copy everything needed to run (including tsconfig for path aliases)
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/database/migrations ./migrations
-
-USER appuser
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./
+COPY --from=build /app/tsconfig.json ./
 
 EXPOSE 3000
 
-CMD ["node", "dist/main"]
+# Use tsconfig-paths to resolve @/* path aliases at runtime
+CMD ["node", "-r", "tsconfig-paths/register", "dist/main"]
