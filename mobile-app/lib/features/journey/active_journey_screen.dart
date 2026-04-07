@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
@@ -104,10 +105,10 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
         );
         context.go('/home');
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to complete journey: $e')),
+          const SnackBar(content: Text('Could not complete journey. Please try again.')),
         );
       }
     }
@@ -121,10 +122,10 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
           const SnackBar(content: Text('Added 10 more minutes')),
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to extend time: $e')),
+          const SnackBar(content: Text('Could not extend time. Please try again.')),
         );
       }
     }
@@ -159,10 +160,30 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
       if (mounted) {
         context.go('/home');
       }
-    } catch (e) {
+    } on DioException catch (e) {
+      // If 400, the journey likely already expired or was completed
+      if (e.response?.statusCode == 400 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Journey already ended. Returning to home.'),
+          ),
+        );
+        // Refresh journey state and go home
+        await context.read<JourneyService>().getActiveJourney();
+        if (mounted) context.go('/home');
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not cancel journey. Please try again.'),
+          ),
+        );
+      }
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to cancel journey: $e')),
+          const SnackBar(
+            content: Text('Could not cancel journey. Please try again.'),
+          ),
         );
       }
     }
