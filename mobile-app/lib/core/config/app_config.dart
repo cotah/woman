@@ -33,8 +33,8 @@ class AppConfig {
       case Environment.staging:
         _instance = const AppConfig._(
           environment: Environment.staging,
-          apiBaseUrl: 'https://staging-api.safecircle.app/api',
-          wsUrl: 'wss://staging-api.safecircle.app',
+          apiBaseUrl: 'https://perfect-expression-production-0290.up.railway.app/api/v1',
+          wsUrl: 'wss://perfect-expression-production-0290.up.railway.app',
           mapboxToken: 'YOUR_STAGING_MAPBOX_TOKEN',
         );
         break;

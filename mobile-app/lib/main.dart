@@ -36,7 +36,7 @@ void main() async {
   // Initialize environment config.
   // FIXME(prod): Switch to Environment.prod for release builds.
   // Use --dart-define=ENVIRONMENT=prod or .env file.
-  AppConfig.initialize(Environment.dev);
+  AppConfig.initialize(Environment.staging);
 
   // Core singletons.
   final secureStorage = SecureStorage();
