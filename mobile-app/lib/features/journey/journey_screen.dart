@@ -27,6 +27,7 @@ class JourneyScreen extends StatefulWidget {
 class _JourneyScreenState extends State<JourneyScreen> {
   int _selectedMinutes = 30;
   bool _isStarting = false;
+  String? _selectedDestination; // 'Home' or 'Work' — which is selected to start
 
   // Saved destination coords (persisted via SharedPreferences).
   double? _homeLat;
@@ -98,7 +99,9 @@ class _JourneyScreenState extends State<JourneyScreen> {
     }
   }
 
-  Future<void> _onQuickStart(String label) async {
+  /// Called when user taps Home or Work card — only selects destination.
+  /// If not yet configured, opens the dialog to set the address.
+  Future<void> _onSelectDestination(String label) async {
     double? lat;
     double? lng;
 
@@ -111,12 +114,51 @@ class _JourneyScreenState extends State<JourneyScreen> {
     }
 
     if (lat == null || lng == null) {
-      // Prompt user to set this destination.
+      // Prompt user to set this destination first.
       await _showSetDestinationDialog(label);
+      // After setting, auto-select it
+      if (label == 'Home' && _homeLat != null) {
+        setState(() => _selectedDestination = 'Home');
+      } else if (label == 'Work' && _workLat != null) {
+        setState(() => _selectedDestination = 'Work');
+      }
       return;
     }
 
-    await _startJourney(destLat: lat, destLng: lng, destLabel: label);
+    // Just select, don't start
+    setState(() => _selectedDestination = label);
+  }
+
+  /// Called when user taps "Start Journey" button.
+  Future<void> _onStartJourneyPressed() async {
+    final dest = _selectedDestination;
+
+    if (dest == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select Home or Work first.')),
+      );
+      return;
+    }
+
+    double? lat;
+    double? lng;
+
+    if (dest == 'Home') {
+      lat = _homeLat;
+      lng = _homeLng;
+    } else {
+      lat = _workLat;
+      lng = _workLng;
+    }
+
+    if (lat == null || lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please set your $dest address first.')),
+      );
+      return;
+    }
+
+    await _startJourney(destLat: lat, destLng: lng, destLabel: dest);
   }
 
   /// Debounce timer for address autocomplete
@@ -478,9 +520,9 @@ class _JourneyScreenState extends State<JourneyScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Quick-start destinations
+              // Destination selector
               Text(
-                'Quick start',
+                'Where are you going?',
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -493,7 +535,9 @@ class _JourneyScreenState extends State<JourneyScreen> {
                       icon: Icons.home_outlined,
                       label: 'Home',
                       isSet: _homeLat != null,
-                      onTap: () => _onQuickStart('Home'),
+                      isSelected: _selectedDestination == 'Home',
+                      onTap: () => _onSelectDestination('Home'),
+                      onLongPress: () => _showSetDestinationDialog('Home'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -502,7 +546,9 @@ class _JourneyScreenState extends State<JourneyScreen> {
                       icon: Icons.work_outline,
                       label: 'Work',
                       isSet: _workLat != null,
-                      onTap: () => _onQuickStart('Work'),
+                      isSelected: _selectedDestination == 'Work',
+                      onTap: () => _onSelectDestination('Work'),
+                      onLongPress: () => _showSetDestinationDialog('Work'),
                     ),
                   ),
                 ],
@@ -551,7 +597,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
 
               // Start button
               FilledButton.icon(
-                onPressed: _isStarting ? null : () => _onQuickStart('Home'),
+                onPressed: _isStarting ? null : _onStartJourneyPressed,
                 icon: _isStarting
                     ? const SizedBox(
                         width: 20,
@@ -562,7 +608,13 @@ class _JourneyScreenState extends State<JourneyScreen> {
                         ),
                       )
                     : const Icon(Icons.navigation_outlined),
-                label: Text(_isStarting ? 'Starting...' : 'Start journey'),
+                label: Text(
+                  _isStarting
+                      ? 'Starting...'
+                      : _selectedDestination != null
+                          ? 'Start journey to $_selectedDestination'
+                          : 'Start journey',
+                ),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
                 ),
@@ -580,13 +632,17 @@ class _QuickDestinationCard extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isSet;
+  final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   const _QuickDestinationCard({
     required this.icon,
     required this.label,
     required this.isSet,
+    this.isSelected = false,
     required this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -594,41 +650,59 @@ class _QuickDestinationCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Card(
-      elevation: 0,
+      elevation: isSelected ? 2 : 0,
+      color: isSelected
+          ? theme.colorScheme.primaryContainer
+          : theme.cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.colorScheme.outlineVariant),
+        side: BorderSide(
+          color: isSelected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.outlineVariant,
+          width: isSelected ? 2 : 1,
+        ),
       ),
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
           child: Column(
             children: [
               Icon(
-                icon,
+                isSelected ? Icons.check_circle : icon,
                 size: 32,
-                color: isSet
+                color: isSelected
                     ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+                    : isSet
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
               ),
               const SizedBox(height: 8),
               Text(
                 label,
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : null,
                 ),
               ),
-              if (!isSet) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Tap to set',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+              const SizedBox(height: 4),
+              Text(
+                !isSet
+                    ? 'Tap to set'
+                    : isSelected
+                        ? 'Selected'
+                        : 'Tap to select',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
-              ],
+              ),
             ],
           ),
         ),

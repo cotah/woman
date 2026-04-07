@@ -219,17 +219,9 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
 
             // Build map markers and route
             final destLatLng = LatLng(journey.destLatitude, journey.destLongitude);
-            final markers = <Marker>[
-              // Destination marker
-              Marker(
-                point: destLatLng,
-                width: 40,
-                height: 40,
-                child: const Icon(Icons.flag_circle, color: Colors.red, size: 36),
-              ),
-            ];
+            final markers = <Marker>[];
 
-            // Current location marker
+            // Current location marker (added FIRST so destination renders on top)
             if (_currentLatLng != null) {
               markers.add(Marker(
                 point: _currentLatLng!,
@@ -253,6 +245,28 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
               ));
             }
 
+            // Destination marker (added LAST so it renders on top of person)
+            markers.add(Marker(
+              point: destLatLng,
+              width: 48,
+              height: 48,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withOpacity(0.4),
+                      blurRadius: 8,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.flag, color: Colors.white, size: 24),
+              ),
+            ));
+
             // Route line from current position to destination
             final polylines = <Polyline>[];
             if (_currentLatLng != null) {
@@ -264,7 +278,28 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
               ));
             }
 
+            // Calculate zoom to fit both markers
             final mapCenter = _currentLatLng ?? destLatLng;
+            double initialZoom = 14.0;
+            if (_currentLatLng != null) {
+              final distance = const Distance().as(
+                LengthUnit.Meter,
+                _currentLatLng!,
+                destLatLng,
+              );
+              // Adjust zoom based on distance between points
+              if (distance < 500) {
+                initialZoom = 16.0;
+              } else if (distance < 2000) {
+                initialZoom = 14.0;
+              } else if (distance < 5000) {
+                initialZoom = 13.0;
+              } else if (distance < 10000) {
+                initialZoom = 12.0;
+              } else {
+                initialZoom = 11.0;
+              }
+            }
             final token = AppConfig.instance.mapboxToken;
             final useMapbox = token.isNotEmpty && !token.startsWith('YOUR_');
 
@@ -280,7 +315,7 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
                           mapController: _mapController,
                           options: MapOptions(
                             initialCenter: mapCenter,
-                            initialZoom: 14.0,
+                            initialZoom: initialZoom,
                           ),
                           children: [
                             TileLayer(
