@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
+import { SentryModule } from '@sentry/nestjs/setup';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { SentryGlobalFilter } from '@sentry/nestjs/setup';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
@@ -27,6 +29,9 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 
 @Module({
   imports: [
+    // Sentry error monitoring (must be first)
+    SentryModule.forRoot(),
+
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
@@ -84,6 +89,11 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     JourneyModule,
   ],
   providers: [
+    // Sentry global filter (catches all unhandled exceptions)
+    {
+      provide: APP_FILTER,
+      useClass: SentryGlobalFilter,
+    },
     // Global exception filter
     {
       provide: APP_FILTER,
