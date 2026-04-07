@@ -1,4 +1,4 @@
-# ── Stage 1: Install ALL dependencies ────────────
+# ── Stage 1: Build ───────────────────────────────
 FROM node:20-alpine AS build
 
 WORKDIR /app
@@ -8,12 +8,10 @@ RUN npm ci
 
 COPY . ./
 
-# Show TypeScript errors explicitly, then build
-RUN npx tsc --noEmit 2>&1 || true
-RUN echo "--- Building with nest ---"
-RUN npm run build 2>&1; echo "Build exit code: $?"
-RUN echo "--- Contents of dist/ ---" && ls -la dist/ 2>/dev/null || echo "dist/ does not exist"
-RUN ls -la dist/main.js || (echo "BUILD FAILED" && exit 1)
+# Build NestJS app
+RUN npm run build
+# Verify the build worked
+RUN ls dist/main.js
 
 # ── Stage 2: Production ─────────────────────────
 FROM node:20-alpine
@@ -24,6 +22,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 COPY --from=build /app/tsconfig.json ./
+COPY --from=build /app/tsconfig.build.json ./
 
 EXPOSE 3000
 
