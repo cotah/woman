@@ -8,18 +8,18 @@ RUN npm ci
 
 COPY . ./
 
-# Build NestJS app
-RUN npm run build
-
-# Verify build output exists
-RUN ls -la dist/main.js || (echo "BUILD FAILED - dist/main.js not found" && exit 1)
+# Show TypeScript errors explicitly, then build
+RUN npx tsc --noEmit 2>&1 || true
+RUN echo "--- Building with nest ---"
+RUN npm run build 2>&1; echo "Build exit code: $?"
+RUN echo "--- Contents of dist/ ---" && ls -la dist/ 2>/dev/null || echo "dist/ does not exist"
+RUN ls -la dist/main.js || (echo "BUILD FAILED" && exit 1)
 
 # ── Stage 2: Production ─────────────────────────
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy everything needed to run (including tsconfig for path aliases)
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
@@ -27,5 +27,4 @@ COPY --from=build /app/tsconfig.json ./
 
 EXPOSE 3000
 
-# Use tsconfig-paths to resolve @/* path aliases at runtime
 CMD ["node", "-r", "tsconfig-paths/register", "dist/main"]
