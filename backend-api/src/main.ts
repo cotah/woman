@@ -65,6 +65,10 @@ async function bootstrap() {
       ) {
         return callback(null, true);
       }
+      // If CORS_ORIGINS is '*', allow all origins
+      if (corsOrigins.includes('*')) {
+        return callback(null, true);
+      }
       // Otherwise check whitelist
       if (corsOrigins.includes(origin)) {
         return callback(null, true);
