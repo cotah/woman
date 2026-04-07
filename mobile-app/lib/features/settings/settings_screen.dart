@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/auth_service.dart';
+import '../../core/theme/theme_notifier.dart';
 
 /// Main settings menu with grouped navigation items.
 class SettingsScreen extends StatelessWidget {
@@ -39,6 +40,12 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'Consent, AI analysis, sharing',
             onTap: () => context.push('/settings/audio'),
           ),
+
+          const SizedBox(height: 8),
+
+          // Appearance section
+          _SectionHeader(title: 'Appearance'),
+          _ThemeModeTile(),
 
           const SizedBox(height: 8),
 
@@ -193,6 +200,71 @@ class _SettingsTile extends StatelessWidget {
       ),
       trailing: const Icon(Icons.chevron_right, size: 20),
       onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      minVerticalPadding: 12,
+    );
+  }
+}
+
+class _ThemeModeTile extends StatelessWidget {
+  const _ThemeModeTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final themeNotifier = context.watch<ThemeNotifier>();
+
+    String label;
+    IconData icon;
+    switch (themeNotifier.themeMode) {
+      case ThemeMode.light:
+        label = 'Light';
+        icon = Icons.light_mode;
+        break;
+      case ThemeMode.dark:
+        label = 'Dark';
+        icon = Icons.dark_mode;
+        break;
+      case ThemeMode.system:
+        label = 'System';
+        icon = Icons.settings_brightness;
+        break;
+    }
+
+    return ListTile(
+      leading: Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+      title: const Text('Theme'),
+      subtitle: Text(
+        label,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+      trailing: SegmentedButton<ThemeMode>(
+        segments: const [
+          ButtonSegment(
+            value: ThemeMode.light,
+            icon: Icon(Icons.light_mode, size: 18),
+          ),
+          ButtonSegment(
+            value: ThemeMode.system,
+            icon: Icon(Icons.settings_brightness, size: 18),
+          ),
+          ButtonSegment(
+            value: ThemeMode.dark,
+            icon: Icon(Icons.dark_mode, size: 18),
+          ),
+        ],
+        selected: {themeNotifier.themeMode},
+        onSelectionChanged: (selected) {
+          themeNotifier.setThemeMode(selected.first);
+        },
+        showSelectedIcon: false,
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       minVerticalPadding: 12,
     );

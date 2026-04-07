@@ -22,6 +22,7 @@ import 'core/services/sms_fallback_service.dart';
 import 'core/services/background_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_notifier.dart';
 import 'core/utils/coercion_handler.dart';
 
 void main() async {
@@ -76,6 +77,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   late final OfflineQueueService _offlineQueueService;
   late final SmsFallbackService _smsFallbackService;
   late final BackgroundService _backgroundService;
+  late final ThemeNotifier _themeNotifier;
   late final GoRouter _router;
 
   @override
@@ -117,6 +119,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _offlineQueueService.initialize();
     _smsFallbackService = SmsFallbackService();
     _backgroundService = BackgroundService();
+    _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
     _router = buildRouter(_authService);
@@ -157,14 +160,19 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         Provider.value(value: widget.apiClient),
         Provider.value(value: widget.secureStorage),
         Provider.value(value: _coercionHandler),
+        ChangeNotifierProvider.value(value: _themeNotifier),
       ],
-      child: MaterialApp.router(
-        title: 'SafeCircle',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
-        routerConfig: _router,
+      child: Consumer<ThemeNotifier>(
+        builder: (context, themeNotifier, _) {
+          return MaterialApp.router(
+            title: 'SafeCircle',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: themeNotifier.themeMode,
+            routerConfig: _router,
+          );
+        },
       ),
     );
   }
