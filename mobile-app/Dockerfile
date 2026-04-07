@@ -3,10 +3,13 @@ FROM instrumentisto/flutter:3 AS build
 
 WORKDIR /app
 
+# Mapbox token passed as build argument
+ARG MAPBOX_TOKEN=""
+
 COPY . ./
 
 RUN flutter pub get
-RUN flutter build web --release
+RUN flutter build web --release --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
 
 # ── Stage 2: Serve with nginx ───────────────────
 FROM nginx:alpine

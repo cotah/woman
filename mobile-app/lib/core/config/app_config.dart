@@ -11,8 +11,11 @@ class AppConfig {
     required this.environment,
     required this.apiBaseUrl,
     required this.wsUrl,
-    required this.mapboxToken,
+    this.mapboxToken = '',
   });
+
+  /// Mapbox token injected at build time via --dart-define=MAPBOX_TOKEN=...
+  static const String _buildMapboxToken = String.fromEnvironment('MAPBOX_TOKEN');
 
   static late final AppConfig _instance;
   static AppConfig get instance => _instance;
@@ -27,23 +30,23 @@ class AppConfig {
           environment: Environment.dev,
           apiBaseUrl: 'http://$host:3000/api/v1',
           wsUrl: 'ws://$host:3000',
-          mapboxToken: 'YOUR_DEV_MAPBOX_TOKEN',
+          mapboxToken: _buildMapboxToken,
         );
         break;
       case Environment.staging:
-        _instance = const AppConfig._(
+        _instance = AppConfig._(
           environment: Environment.staging,
           apiBaseUrl: 'https://perfect-expression-production-0290.up.railway.app/api/v1',
           wsUrl: 'wss://perfect-expression-production-0290.up.railway.app',
-          mapboxToken: 'YOUR_STAGING_MAPBOX_TOKEN',
+          mapboxToken: _buildMapboxToken,
         );
         break;
       case Environment.prod:
-        _instance = const AppConfig._(
+        _instance = AppConfig._(
           environment: Environment.prod,
           apiBaseUrl: 'https://api.safecircle.app/api',
           wsUrl: 'wss://api.safecircle.app',
-          mapboxToken: 'YOUR_PROD_MAPBOX_TOKEN',
+          mapboxToken: _buildMapboxToken,
         );
         break;
     }

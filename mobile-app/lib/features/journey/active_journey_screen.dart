@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/models/journey.dart';
+import '../../core/models/location_update.dart';
 import '../../core/services/journey_service.dart';
+import '../../core/services/location_service.dart';
 
 /// Displays the active Safe Journey with a countdown timer,
 /// destination info, and actions to complete, extend, or cancel.
@@ -17,6 +22,9 @@ class ActiveJourneyScreen extends StatefulWidget {
 
 class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
   Timer? _tickTimer;
+  final MapController _mapController = MapController();
+  StreamSubscription<LocationUpdate>? _locationSub;
+  LatLng? _currentLatLng;
 
   @override
   void initState() {
@@ -27,8 +35,32 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
       if (mounted) setState(() {});
     });
 
-    // Fetch active journey on load in case we navigated here directly.
+    // Listen to real-time location updates
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final locationService = context.read<LocationService>();
+      final lastPos = locationService.lastPosition;
+      if (lastPos != null) {
+        _currentLatLng = LatLng(lastPos.latitude, lastPos.longitude);
+      }
+
+      _locationSub = locationService.locationStream.listen((update) {
+        if (mounted) {
+          setState(() {
+            _currentLatLng = LatLng(update.latitude, update.longitude);
+          });
+        }
+      });
+
+      // Also get current location immediately
+      locationService.getCurrentLocation().then((loc) {
+        if (loc != null && mounted) {
+          setState(() {
+            _currentLatLng = LatLng(loc.latitude, loc.longitude);
+          });
+        }
+      });
+
+      // Fetch active journey on load in case we navigated here directly.
       final journeyService = context.read<JourneyService>();
       if (journeyService.activeJourney == null) {
         journeyService.getActiveJourney().then((journey) {
@@ -43,6 +75,8 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
   @override
   void dispose() {
     _tickTimer?.cancel();
+    _locationSub?.cancel();
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -162,134 +196,272 @@ class _ActiveJourneyScreenState extends State<ActiveJourneyScreen> {
             final remaining = _remainingTime(journey);
             final isExpired = remaining == Duration.zero;
 
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    const Spacer(flex: 2),
+            // Build map markers and route
+            final destLatLng = LatLng(journey.destLatitude, journey.destLongitude);
+            final markers = <Marker>[
+              // Destination marker
+              Marker(
+                point: destLatLng,
+                width: 40,
+                height: 40,
+                child: const Icon(Icons.flag_circle, color: Colors.red, size: 36),
+              ),
+            ];
 
-                    // Status icon
-                    Icon(
-                      isExpired
-                          ? Icons.warning_amber_rounded
-                          : Icons.shield_outlined,
-                      size: 64,
-                      color: isExpired
-                          ? theme.colorScheme.error
-                          : theme.colorScheme.primary,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Countdown timer
-                    Text(
-                      _formatDuration(remaining),
-                      style: theme.textTheme.displayMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        fontFeatures: [const FontFeature.tabularFigures()],
-                        color: isExpired
-                            ? theme.colorScheme.error
-                            : theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      isExpired
-                          ? 'Time expired - contacts may be alerted'
-                          : 'Time remaining',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: isExpired
-                            ? theme.colorScheme.error
-                            : theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-
-                    // Destination label
-                    if (journey.destLabel != null) ...[
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.place_outlined,
-                            size: 20,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            journey.destLabel!,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
+            // Current location marker
+            if (_currentLatLng != null) {
+              markers.add(Marker(
+                point: _currentLatLng!,
+                width: 44,
+                height: 44,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.colorScheme.primary.withOpacity(0.3),
+                        blurRadius: 8,
+                        spreadRadius: 2,
                       ),
                     ],
+                  ),
+                  child: const Icon(Icons.person, color: Colors.white, size: 22),
+                ),
+              ));
+            }
 
-                    const SizedBox(height: 16),
+            // Route line from current position to destination
+            final polylines = <Polyline>[];
+            if (_currentLatLng != null) {
+              polylines.add(Polyline(
+                points: [_currentLatLng!, destLatLng],
+                strokeWidth: 3.0,
+                color: theme.colorScheme.primary.withOpacity(0.6),
+                isDotted: true,
+              ));
+            }
 
-                    // Sharing status
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer
-                            .withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.share_location,
-                            size: 18,
-                            color: theme.colorScheme.primary,
+            final mapCenter = _currentLatLng ?? destLatLng;
+            final token = AppConfig.instance.mapboxToken;
+            final useMapbox = token.isNotEmpty && !token.startsWith('YOUR_');
+
+            return SafeArea(
+              child: Column(
+                children: [
+                  // Live map (top half)
+                  Expanded(
+                    flex: 5,
+                    child: Stack(
+                      children: [
+                        FlutterMap(
+                          mapController: _mapController,
+                          options: MapOptions(
+                            initialCenter: mapCenter,
+                            initialZoom: 14.0,
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Your contacts can see your location',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w500,
+                          children: [
+                            TileLayer(
+                              urlTemplate: useMapbox
+                                  ? 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}@2x?access_token=$token'
+                                  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              userAgentPackageName: 'com.safecircle.app',
+                              maxZoom: 19,
                             ),
+                            PolylineLayer(polylines: polylines),
+                            MarkerLayer(markers: markers),
+                          ],
+                        ),
+
+                        // Timer overlay on top of map
+                        Positioned(
+                          top: 12,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isExpired
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.surface,
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.15),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isExpired
+                                        ? Icons.warning_amber_rounded
+                                        : Icons.shield_outlined,
+                                    size: 20,
+                                    color: isExpired
+                                        ? Colors.white
+                                        : theme.colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _formatDuration(remaining),
+                                    style:
+                                        theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      fontFeatures: [
+                                        const FontFeature.tabularFigures()
+                                      ],
+                                      color: isExpired
+                                          ? Colors.white
+                                          : theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // Destination label overlay
+                        if (journey.destLabel != null)
+                          Positioned(
+                            top: 60,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.surface
+                                      .withOpacity(0.9),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.place_outlined,
+                                        size: 16,
+                                        color: theme
+                                            .colorScheme.onSurfaceVariant),
+                                    const SizedBox(width: 4),
+                                    Text(journey.destLabel!,
+                                        style: theme.textTheme.bodySmall),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        // Re-center button
+                        Positioned(
+                          bottom: 12,
+                          right: 12,
+                          child: FloatingActionButton.small(
+                            heroTag: 'recenter',
+                            onPressed: () {
+                              if (_currentLatLng != null) {
+                                _mapController.move(_currentLatLng!, 15.0);
+                              }
+                            },
+                            child: const Icon(Icons.my_location, size: 20),
+                          ),
+                        ),
+
+                        // Sharing status overlay
+                        Positioned(
+                          bottom: 12,
+                          left: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.share_location,
+                                    size: 14,
+                                    color: theme.colorScheme.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Sharing location',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Action buttons (bottom)
+                  Expanded(
+                    flex: 3,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            isExpired
+                                ? 'Time expired - contacts may be alerted'
+                                : 'Your contacts can see your trip',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: isExpired
+                                  ? theme.colorScheme.error
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          FilledButton.icon(
+                            onPressed: _onArrived,
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: const Text('I arrived safely'),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(52),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: _onNeedMoreTime,
+                                  child: const Text('+10 min'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: _onCancel,
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: theme.colorScheme.error,
+                                  ),
+                                  child: const Text('Cancel'),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-
-                    const Spacer(flex: 3),
-
-                    // "I arrived safely" button
-                    FilledButton.icon(
-                      onPressed: _onArrived,
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('I arrived safely'),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(56),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // "I need more time" button
-                    TextButton(
-                      onPressed: _onNeedMoreTime,
-                      child: const Text('I need more time (+10 min)'),
-                    ),
-                    const SizedBox(height: 4),
-
-                    // Cancel button
-                    TextButton(
-                      onPressed: _onCancel,
-                      style: TextButton.styleFrom(
-                        foregroundColor: theme.colorScheme.error,
-                      ),
-                      child: const Text('Cancel journey'),
-                    ),
-                    const SizedBox(height: 32),
-                  ],
-                ),
+                  ),
+                ],
               ),
             );
           },

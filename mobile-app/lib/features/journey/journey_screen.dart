@@ -1,11 +1,14 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/services/journey_service.dart';
 import '../../core/services/location_service.dart';
 
@@ -298,6 +301,57 @@ class _JourneyScreenState extends State<JourneyScreen> {
     return null;
   }
 
+  Widget _buildMapPreview() {
+    final token = AppConfig.instance.mapboxToken;
+    final markers = <Marker>[];
+    final points = <LatLng>[];
+
+    if (_homeLat != null && _homeLng != null) {
+      final p = LatLng(_homeLat!, _homeLng!);
+      points.add(p);
+      markers.add(Marker(
+        point: p,
+        width: 40,
+        height: 40,
+        child: const Icon(Icons.home, color: Colors.deepPurple, size: 32),
+      ));
+    }
+
+    if (_workLat != null && _workLng != null) {
+      final p = LatLng(_workLat!, _workLng!);
+      points.add(p);
+      markers.add(Marker(
+        point: p,
+        width: 40,
+        height: 40,
+        child: const Icon(Icons.work, color: Colors.teal, size: 32),
+      ));
+    }
+
+    final center = points.first;
+    final useMapbox = token.isNotEmpty && !token.startsWith('YOUR_');
+
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: center,
+        initialZoom: points.length > 1 ? 12.0 : 14.0,
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.none,
+        ),
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: useMapbox
+              ? 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}@2x?access_token=$token'
+              : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.safecircle.app',
+          maxZoom: 19,
+        ),
+        MarkerLayer(markers: markers),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -364,7 +418,19 @@ class _JourneyScreenState extends State<JourneyScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              // Map preview (shown when at least one destination is saved)
+              if (_homeLat != null || _workLat != null) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    height: 180,
+                    child: _buildMapPreview(),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
 
               // Duration selector
               Text(
