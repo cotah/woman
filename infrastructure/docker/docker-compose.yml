@@ -1,0 +1,127 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL 16 ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: safecircle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: safecircle
+      POSTGRES_PASSWORD: safecircle_dev
+      POSTGRES_DB: safecircle
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safecircle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis 7 ────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: safecircle-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO (S3-compatible object storage) ───────
+  minio:
+    image: minio/minio:latest
+    container_name: safecircle-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Backend API ────────────────────────────────
+  backend:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.backend
+    container_name: safecircle-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: safecircle
+      DB_PASSWORD: safecircle_dev
+      DB_DATABASE: safecircle
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-in-production
+      AWS_S3_ENDPOINT: http://minio:9000
+      AWS_S3_BUCKET: safecircle-audio
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_S3_REGION: us-east-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # ── Admin Web Dashboard ────────────────────────
+  admin-web:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.web
+      args:
+        APP_DIR: admin-web
+        VITE_API_BASE_URL: http://localhost:3000/api/v1
+        VITE_WS_URL: ws://localhost:3000
+    container_name: safecircle-admin-web
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  # ── Contact Web View ───────────────────────────
+  contact-web:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.web
+      args:
+        APP_DIR: contact-web
+        VITE_API_BASE_URL: http://localhost:3000/api/v1
+        VITE_WS_URL: ws://localhost:3000
+    container_name: safecircle-contact-web
+    restart: unless-stopped
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
