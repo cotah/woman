@@ -9,6 +9,7 @@ import {
   HttpStatus,
   Headers,
   UnauthorizedException,
+  SetMetadata,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,6 +21,9 @@ import {
 import { NotificationsService } from './notifications.service';
 import { ContactRespondDto } from './dto/contact-respond.dto';
 import { ContactAccessService } from '../contacts/contact-access.service';
+import { IS_PUBLIC_KEY } from '../auth/guards/jwt-auth.guard';
+
+const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 @ApiTags('Notifications / Contact Response')
 @Controller('incidents')
@@ -35,6 +39,7 @@ export class NotificationsController {
    * Authenticated via contact access token (bearer or query).
    */
   @Post(':id/respond')
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Record a trusted contact response to an incident',

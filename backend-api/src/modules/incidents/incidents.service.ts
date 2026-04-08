@@ -19,6 +19,10 @@ import { CreateIncidentDto } from './dto/create-incident.dto';
 import { ResolveIncidentDto, CancelIncidentDto, AddEventDto } from './dto/resolve-incident.dto';
 import { RiskEngineService } from '../risk-engine/risk-engine.service';
 import { RiskSignal, IncidentRiskState } from '../risk-engine/interfaces/risk-scoring-strategy';
+import { NotificationsService, TrustedContactInfo } from '../notifications/notifications.service';
+import { ContactsService } from '../contacts/contacts.service';
+import { ContactAccessService } from '../contacts/contact-access.service';
+import { UsersService } from '../users/users.service';
 
 const DEFAULT_COUNTDOWN_SECONDS = 5;
 
@@ -52,6 +56,10 @@ export class IncidentsService {
     @InjectRepository(IncidentLocation)
     private readonly locationRepo: Repository<IncidentLocation>,
     private readonly riskEngine: RiskEngineService,
+    private readonly notificationsService: NotificationsService,
+    private readonly contactsService: ContactsService,
+    private readonly contactAccessService: ContactAccessService,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -233,6 +241,10 @@ export class IncidentsService {
 
     const saved = await this.incidentRepo.save(incident);
     this.logger.log(`Incident ${incidentId} activated (risk=${result.newScore}/${result.newLevel})`);
+
+    // CRITICAL: Dispatch alert waves to trusted contacts
+    await this.dispatchAlertsForIncident(saved, userId);
+
     return saved;
   }
 
@@ -273,6 +285,10 @@ export class IncidentsService {
 
     const saved = await this.incidentRepo.save(incident);
     this.logger.log(`Incident ${incidentId} resolved (${saved.status})`);
+
+    // Cancel any pending alert waves
+    await this.notificationsService.cancelPendingWaves(incidentId);
+
     return saved;
   }
 
@@ -352,6 +368,9 @@ export class IncidentsService {
         `Incident ${incidentId} SECRET CANCEL - escalated to critical (score=${incident.currentRiskScore})`,
       );
 
+      // CRITICAL: Dispatch emergency alerts silently — user is under duress
+      await this.dispatchAlertsForIncident(saved, userId);
+
       // Return a response that looks like a normal cancellation to the client
       return {
         ...saved,
@@ -374,6 +393,10 @@ export class IncidentsService {
 
     const saved = await this.incidentRepo.save(incident);
     this.logger.log(`Incident ${incidentId} cancelled`);
+
+    // Cancel any pending alert waves
+    await this.notificationsService.cancelPendingWaves(incidentId);
+
     return saved;
   }
 
@@ -589,5 +612,90 @@ export class IncidentsService {
       triggerType: incident.triggerType,
       eventCount: 0,
     };
+  }
+
+  /**
+   * Fetch trusted contacts, generate access tokens, and dispatch alert waves.
+   * Called when an incident is activated or during coercion escalation.
+   */
+  private async dispatchAlertsForIncident(
+    incident: Incident,
+    userId: string,
+  ): Promise<void> {
+    try {
+      // Fetch user info for the alert message
+      const user = await this.usersService.findById(userId);
+      if (!user) {
+        this.logger.error(
+          `Cannot dispatch alerts for incident ${incident.id}: user ${userId} not found`,
+        );
+        return;
+      }
+
+      const userName = `${user.firstName} ${user.lastName}`.trim() || user.email;
+
+      // Fetch all trusted contacts for this user
+      const contacts = await this.contactsService.findAllByUser(userId);
+      if (contacts.length === 0) {
+        this.logger.warn(
+          `No trusted contacts configured for user ${userId}. No alerts will be dispatched for incident ${incident.id}.`,
+        );
+        return;
+      }
+
+      // Generate access tokens and build TrustedContactInfo array
+      const contactInfos: TrustedContactInfo[] = [];
+
+      for (const contact of contacts) {
+        let accessUrl: string | undefined;
+        try {
+          const tokenResult = await this.contactAccessService.generateToken(
+            incident.id,
+            contact.id,
+          );
+          accessUrl = tokenResult.accessUrl;
+        } catch (error) {
+          this.logger.warn(
+            `Failed to generate access token for contact ${contact.id}: ${error.message}`,
+          );
+        }
+
+        contactInfos.push({
+          id: contact.id,
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email ?? undefined,
+          priority: contact.priority,
+          locale: contact.locale || 'en',
+          canReceiveSms: contact.canReceiveSms,
+          canReceivePush: contact.canReceivePush,
+          canReceiveVoiceCall: contact.canReceiveVoiceCall,
+          accessUrl,
+          lastLatitude: incident.lastLatitude ? Number(incident.lastLatitude) : undefined,
+          lastLongitude: incident.lastLongitude ? Number(incident.lastLongitude) : undefined,
+        });
+      }
+
+      // Dispatch the alert waves
+      await this.notificationsService.dispatchAlertWaves(
+        incident.id,
+        userId,
+        userName,
+        contactInfos,
+        undefined, // use default wave config
+        incident.isTestMode,
+      );
+
+      this.logger.log(
+        `Alert waves dispatched for incident ${incident.id} to ${contactInfos.length} contacts`,
+      );
+    } catch (error) {
+      // Alert dispatch failure must NOT prevent the incident from being active.
+      // Log the error but don't throw — the incident is already saved.
+      this.logger.error(
+        `Failed to dispatch alerts for incident ${incident.id}: ${error.message}`,
+        error.stack,
+      );
+    }
   }
 }

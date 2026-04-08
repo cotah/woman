@@ -18,6 +18,9 @@ import { ContactResponse } from '../../src/modules/notifications/entities/contac
 import { SmsProvider } from '../../src/modules/notifications/providers/sms.provider';
 import { PushProvider } from '../../src/modules/notifications/providers/push.provider';
 import { VoiceProvider } from '../../src/modules/notifications/providers/voice.provider';
+import { ContactsService } from '../../src/modules/contacts/contacts.service';
+import { ContactAccessService } from '../../src/modules/contacts/contact-access.service';
+import { UsersService } from '../../src/modules/users/users.service';
 
 /**
  * End-to-end scenario tests that exercise full flows through the
@@ -174,6 +177,24 @@ describe('Emergency Flows (Scenarios)', () => {
         { provide: SmsProvider, useValue: mockSmsProvider },
         { provide: PushProvider, useValue: mockPushProvider },
         { provide: VoiceProvider, useValue: mockVoiceProvider },
+        {
+          provide: ContactsService,
+          useValue: {
+            findAllByUser: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: ContactAccessService,
+          useValue: {
+            generateToken: jest.fn().mockResolvedValue({ rawToken: 'test', accessUrl: 'http://test' }),
+          },
+        },
+        {
+          provide: UsersService,
+          useValue: {
+            findById: jest.fn().mockResolvedValue({ id: 'user-1', firstName: 'Test', lastName: 'User', email: 'test@example.com' }),
+          },
+        },
       ],
     }).compile();
 

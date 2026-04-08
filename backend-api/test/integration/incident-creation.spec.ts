@@ -2,6 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { RiskEngineService } from '../../src/modules/risk-engine/risk-engine.service';
+import { NotificationsService } from '../../src/modules/notifications/notifications.service';
+import { ContactsService } from '../../src/modules/contacts/contacts.service';
+import { ContactAccessService } from '../../src/modules/contacts/contact-access.service';
+import { UsersService } from '../../src/modules/users/users.service';
 import {
   Incident,
   IncidentStatus,
@@ -85,6 +89,31 @@ describe('Incident Creation (Integration)', () => {
         { provide: getRepositoryToken(IncidentEvent), useValue: mockEventRepo },
         { provide: getRepositoryToken(IncidentLocation), useValue: mockLocationRepo },
         { provide: getRepositoryToken(RiskAssessment), useValue: mockRiskAssessmentRepo },
+        {
+          provide: NotificationsService,
+          useValue: {
+            dispatchAlertWaves: jest.fn().mockResolvedValue(undefined),
+            cancelPendingWaves: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: ContactsService,
+          useValue: {
+            findAllByUser: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: ContactAccessService,
+          useValue: {
+            generateToken: jest.fn().mockResolvedValue({ rawToken: 'test', accessUrl: 'http://test' }),
+          },
+        },
+        {
+          provide: UsersService,
+          useValue: {
+            findById: jest.fn().mockResolvedValue({ id: 'user-1', firstName: 'Test', lastName: 'User', email: 'test@example.com' }),
+          },
+        },
       ],
     }).compile();
 

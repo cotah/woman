@@ -143,6 +143,10 @@ describe('Coercion Logic', () => {
         mockEventRepo,
         mockLocationRepo,
         mockRiskEngine,
+        { dispatchAlertWaves: jest.fn().mockResolvedValue(undefined), cancelPendingWaves: jest.fn().mockResolvedValue(undefined) } as any,
+        { findAllByUser: jest.fn().mockResolvedValue([]) } as any,
+        { generateToken: jest.fn().mockResolvedValue({ rawToken: 'test', accessUrl: 'http://test' }) } as any,
+        { findById: jest.fn().mockResolvedValue({ id: 'user-1', firstName: 'Test', lastName: 'User', email: 'test@test.com' }) } as any,
       );
     });
 
