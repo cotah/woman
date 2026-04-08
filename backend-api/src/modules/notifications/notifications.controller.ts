@@ -22,10 +22,12 @@ import { NotificationsService } from './notifications.service';
 import { ContactRespondDto } from './dto/contact-respond.dto';
 import { ContactAccessService } from '../contacts/contact-access.service';
 import { IS_PUBLIC_KEY } from '../auth/guards/jwt-auth.guard';
+import { SkipThrottle } from '@nestjs/throttler';
 
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 @ApiTags('Notifications / Contact Response')
+@SkipThrottle() // Safety-critical: contact responses during emergencies
 @Controller('incidents')
 export class NotificationsController {
   constructor(

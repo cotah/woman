@@ -21,6 +21,7 @@ import {
   ApiResponse,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AudioService } from './audio.service';
 
 const MAX_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -35,6 +36,7 @@ const ALLOWED_MIMES = [
 ];
 
 @ApiTags('Audio')
+@SkipThrottle() // Safety-critical: audio uploads during emergencies must never be blocked
 @Controller('incidents')
 export class AudioController {
   constructor(private readonly audioService: AudioService) {}

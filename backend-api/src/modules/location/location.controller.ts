@@ -16,6 +16,7 @@ import {
   ApiResponse,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import {
   IsNumber,
   IsOptional,
@@ -84,6 +85,7 @@ export class CreateLocationDto {
 }
 
 @ApiTags('Location')
+@SkipThrottle() // Safety-critical: location updates during emergencies must never be blocked
 @Controller('incidents')
 export class LocationController {
   constructor(private readonly locationService: LocationService) {}

@@ -17,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -34,6 +35,7 @@ import { IncidentStatus, TriggerType } from './entities/incident.entity';
 @ApiTags('Incidents')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+@SkipThrottle() // Safety-critical: emergency endpoints must never be rate-limited
 @Controller('incidents')
 export class IncidentsController {
   constructor(private readonly incidentsService: IncidentsService) {}

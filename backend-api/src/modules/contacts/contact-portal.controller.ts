@@ -16,6 +16,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ContactAccessService, ValidatedTokenData } from './contact-access.service';
@@ -43,6 +44,7 @@ const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
  *   POST /api/v1/contact/incident/:id/respond — Submit a contact response
  */
 @ApiTags('Contact Portal')
+@SkipThrottle() // Safety-critical: contact responses during emergencies must never be blocked
 @Controller('contact')
 export class ContactPortalController {
   private readonly logger = new Logger(ContactPortalController.name);

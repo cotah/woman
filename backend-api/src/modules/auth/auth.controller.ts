@@ -14,6 +14,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -26,6 +27,7 @@ const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 @ApiTags('Auth')
 @Controller('auth')
+@Throttle({ default: { ttl: 60000, limit: 10 } }) // 10 requests per minute — anti brute-force
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
