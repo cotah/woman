@@ -9,6 +9,7 @@ import { VoiceProvider } from './providers/voice.provider';
 import { AlertDelivery } from './entities/alert-delivery.entity';
 import { ContactResponse } from './entities/contact-response.entity';
 import { ContactsModule } from '../contacts/contacts.module';
+import { AlertDispatchProcessor } from '../../queue/alert-dispatch.processor';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ContactsModule } from '../contacts/contacts.module';
     SmsProvider,
     PushProvider,
     VoiceProvider,
+    AlertDispatchProcessor,
   ],
   exports: [NotificationsService],
 })

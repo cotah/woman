@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { SentryGlobalFilter } from '@sentry/nestjs/setup';
@@ -71,6 +72,21 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
       }),
     }),
 
+    // Rate limiting
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: configService.get<number>('app.throttle.ttl', 60) * 1000,
+            limit: configService.get<number>('app.throttle.limit', 60),
+          },
+        ],
+      }),
+    }),
+
     // Feature modules
     AuthModule,
     UsersModule,
@@ -108,6 +124,11 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    // Global rate limiting guard (60 requests per minute per IP)
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
     // Global audit interceptor
     {
