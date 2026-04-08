@@ -35,9 +35,15 @@ void main() async {
   ]);
 
   // Initialize environment config.
-  // FIXME(prod): Switch to Environment.prod for release builds.
-  // Use --dart-define=ENVIRONMENT=prod or .env file.
-  AppConfig.initialize(Environment.staging);
+  // Environment is set via --dart-define=ENVIRONMENT=dev|staging|prod
+  // Defaults to prod for release safety.
+  const envName = String.fromEnvironment('ENVIRONMENT', defaultValue: 'prod');
+  final env = switch (envName) {
+    'dev' => Environment.dev,
+    'staging' => Environment.staging,
+    _ => Environment.prod,
+  };
+  AppConfig.initialize(env);
 
   // Core singletons.
   final secureStorage = SecureStorage();

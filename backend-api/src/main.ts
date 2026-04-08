@@ -68,8 +68,16 @@ async function bootstrap() {
       ) {
         return callback(null, true);
       }
-      // If CORS_ORIGINS is '*', allow all origins
+      // Wildcard is NOT allowed in production — reject and log warning
       if (corsOrigins.includes('*')) {
+        if (configService.get<string>('app.nodeEnv') === 'production') {
+          winstonLogger.warn(
+            `CORS_ORIGINS contains '*' in production — this is a security risk. ` +
+            `Set specific origins (e.g. https://view.safecircle.app). Rejecting request from ${origin}.`,
+          );
+          return callback(new Error('Wildcard CORS not allowed in production'));
+        }
+        // In non-production, allow wildcard
         return callback(null, true);
       }
       // Otherwise check whitelist
