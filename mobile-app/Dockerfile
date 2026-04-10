@@ -9,7 +9,7 @@ ARG MAPBOX_TOKEN=""
 COPY . ./
 
 RUN flutter pub get
-RUN flutter build web --release --web-renderer html --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
+RUN flutter build web --release --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
 
 # ── Stage 2: Serve with nginx ───────────────────
 FROM nginx:alpine
@@ -29,4 +29,4 @@ RUN echo 'server { \
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD 
