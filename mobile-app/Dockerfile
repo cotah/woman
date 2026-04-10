@@ -15,8 +15,9 @@ FROM nginx:alpine
 
 COPY --from=build /app/build/web /usr/share/nginx/html
 
-# Full nginx config with gzip and proper WASM support
-RUN cat > /etc/nginx/conf.d/default.conf << 'ENDCONF'
+# Add WASM MIME type to the default mime.types and write nginx config
+RUN echo 'application/wasm wasm;' >> /etc/nginx/mime.types && \
+    cat > /etc/nginx/conf.d/default.conf << 'ENDCONF'
 server {
     listen 80;
     root /usr/share/nginx/html;
@@ -26,11 +27,6 @@ server {
     gzip on;
     gzip_types application/javascript application/wasm application/json text/css text/html text/plain;
     gzip_min_length 256;
-
-    # Correct MIME type for WASM
-    types {
-        application/wasm wasm;
-    }
 
     # Cache static assets
     location ~* \.(js|css|wasm|png|jpg|ico|json)$ {
