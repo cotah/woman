@@ -15,10 +15,16 @@ FROM nginx:alpine
 
 COPY --from=build /app/build/web /usr/share/nginx/html
 
-# Write nginx config with placeholder port
-RUN echo 'server { listen PORT_PLACEHOLDER; root /usr/share/nginx/html; index index.html; location / { try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
+# SPA routing — all paths serve index.html
+RUN echo 'server { \
+    listen 80; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-# Replace placeholder with actual PORT at runtime, then start nginx
-CMD sh -c "sed -i s/PORT_PLACEHOLDER/\${PORT:-80}/ /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"
+CMD ["nginx", "-g", "daemon off;"]
