@@ -3,7 +3,6 @@ FROM instrumentisto/flutter:3 AS build
 
 WORKDIR /app
 
-# Mapbox token passed as build argument
 ARG MAPBOX_TOKEN=""
 
 COPY . ./
@@ -14,19 +13,12 @@ RUN flutter build web --release --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
 # ── Stage 2: Serve with nginx ───────────────────
 FROM nginx:alpine
 
-# Copy built web app
 COPY --from=build /app/build/web /usr/share/nginx/html
 
-# Custom nginx config for SPA routing
-RUN echo 'server { \
-    listen 80; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+# Write nginx config with placeholder port
+RUN echo 'server { listen PORT_PLACEHOLDER; root /usr/share/nginx/html; index index.html; location / { try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-CMD 
+# Replace placeholder with actual PORT at runtime, then start nginx
+CMD sh -c "sed -i s/PORT_PLACEHOLDER/\${PORT:-80}/ /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"
