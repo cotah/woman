@@ -76,7 +76,7 @@ export class LearnedPlace {
   isFlagged: boolean;
 
   @Column({ name: 'flag_reason', type: 'text', nullable: true })
-  flagReason: string;
+  flagReason: string | null;
 
   @Column({ name: 'first_visited', type: 'timestamptz' })
   firstVisited: Date;
