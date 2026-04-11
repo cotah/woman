@@ -510,149 +510,158 @@ class _JourneyScreenState extends State<JourneyScreen> {
         ),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 24),
+        child: Column(
+          children: [
+            // Scrollable content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 24),
 
-              // Header
-              Text(
-                'Share your trip',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Your trusted contacts will see your live location until '
-                'you arrive safely.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Destination selector
-              Text(
-                'Where are you going?',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _QuickDestinationCard(
-                      icon: Icons.home_outlined,
-                      label: 'Home',
-                      isSet: _homeLat != null,
-                      isSelected: _selectedDestination == 'Home',
-                      onTap: () => _onSelectDestination('Home'),
-                      onLongPress: () => _showSetDestinationDialog('Home'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QuickDestinationCard(
-                      icon: Icons.work_outline,
-                      label: 'Work',
-                      isSet: _workLat != null,
-                      isSelected: _selectedDestination == 'Work',
-                      onTap: () => _onSelectDestination('Work'),
-                      onLongPress: () => _showSetDestinationDialog('Work'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // Map preview (shown when at least one destination is saved)
-              if (_homeLat != null || _workLat != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    height: 180,
-                    child: _buildMapPreview(),
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              // Duration selector — manual input
-              Text(
-                'Trip duration',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 80,
-                    child: TextField(
-                      controller: _durationController,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
+                    // Header
+                    Text(
+                      'Share your trip',
                       style: theme.textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Your trusted contacts will see your live location until '
+                      'you arrive safely.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'minutes',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 32),
+
+                    // Destination selector
+                    Text(
+                      'Where are you going?',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Slider(
-                value: _selectedMinutes.clamp(5, 480).toDouble(),
-                min: 5,
-                max: 480,
-                divisions: 95,
-                label: '${_selectedMinutes}min',
-                onChanged: (value) {
-                  final minutes = value.round();
-                  setState(() {
-                    _selectedMinutes = minutes;
-                    _durationController.removeListener(_onDurationChanged);
-                    _durationController.text = minutes.toString();
-                    _durationController.addListener(_onDurationChanged);
-                  });
-                },
-              ),
-              Text(
-                _selectedMinutes < 60
-                    ? '$_selectedMinutes min'
-                    : '${_selectedMinutes ~/ 60}h ${_selectedMinutes % 60}min',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickDestinationCard(
+                            icon: Icons.home_outlined,
+                            label: 'Home',
+                            isSet: _homeLat != null,
+                            isSelected: _selectedDestination == 'Home',
+                            onTap: () => _onSelectDestination('Home'),
+                            onLongPress: () => _showSetDestinationDialog('Home'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _QuickDestinationCard(
+                            icon: Icons.work_outline,
+                            label: 'Work',
+                            isSet: _workLat != null,
+                            isSelected: _selectedDestination == 'Work',
+                            onTap: () => _onSelectDestination('Work'),
+                            onLongPress: () => _showSetDestinationDialog('Work'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Map preview (shown when at least one destination is saved)
+                    if (_homeLat != null || _workLat != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: SizedBox(
+                          height: 180,
+                          child: _buildMapPreview(),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Duration selector — manual input
+                    Text(
+                      'Trip duration',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 80,
+                          child: TextField(
+                            controller: _durationController,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'minutes',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Slider(
+                      value: _selectedMinutes.clamp(5, 480).toDouble(),
+                      min: 5,
+                      max: 480,
+                      divisions: 95,
+                      label: '${_selectedMinutes}min',
+                      onChanged: (value) {
+                        final minutes = value.round();
+                        setState(() {
+                          _selectedMinutes = minutes;
+                          _durationController.removeListener(_onDurationChanged);
+                          _durationController.text = minutes.toString();
+                          _durationController.addListener(_onDurationChanged);
+                        });
+                      },
+                    ),
+                    Text(
+                      _selectedMinutes < 60
+                          ? '$_selectedMinutes min'
+                          : '${_selectedMinutes ~/ 60}h ${_selectedMinutes % 60}min',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
-                textAlign: TextAlign.center,
               ),
+            ),
 
-              const Spacer(),
-
-              // Start button
-              FilledButton.icon(
+            // Start button — always visible at the bottom
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+              child: FilledButton.icon(
                 onPressed: _isStarting ? null : _onStartJourneyPressed,
                 icon: _isStarting
                     ? const SizedBox(
@@ -675,9 +684,8 @@ class _JourneyScreenState extends State<JourneyScreen> {
                   minimumSize: const Size.fromHeight(56),
                 ),
               ),
-              const SizedBox(height: 32),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -694,75 +702,3 @@ class _QuickDestinationCard extends StatelessWidget {
 
   const _QuickDestinationCard({
     required this.icon,
-    required this.label,
-    required this.isSet,
-    this.isSelected = false,
-    required this.onTap,
-    this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      elevation: isSelected ? 2 : 0,
-      color: isSelected
-          ? theme.colorScheme.primaryContainer
-          : theme.cardColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : theme.colorScheme.outlineVariant,
-          width: isSelected ? 2 : 1,
-        ),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          child: Column(
-            children: [
-              Icon(
-                isSelected ? Icons.check_circle : icon,
-                size: 32,
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : isSet
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : null,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                !isSet
-                    ? 'Tap to set'
-                    : isSelected
-                        ? 'Selected'
-                        : 'Tap to select',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
