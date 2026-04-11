@@ -701,4 +701,62 @@ class _QuickDestinationCard extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   const _QuickDestinationCard({
+    super.key,
     required this.icon,
+    required this.label,
+    required this.isSet,
+    required this.isSelected,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = isSelected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.surfaceContainerHighest;
+    final textColor = isSelected
+        ? theme.colorScheme.onPrimary
+        : theme.colorScheme.onSurface;
+
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected
+              ? Border.all(color: theme.colorScheme.primary, width: 2)
+              : null,
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 32, color: textColor),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (!isSet) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Long press to set',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: textColor.withOpacity(0.6),
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
