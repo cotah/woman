@@ -18,31 +18,32 @@ FROM nginx:alpine
 
 COPY --from=build /app/build/web /usr/share/nginx/html
 
-# Add WASM MIME type inside the types { } block in mime.types, then write nginx config
-RUN sed -i 's|}$|    application/wasm  wasm;\n}|' /etc/nginx/mime.types && \
-    cat > /etc/nginx/conf.d/default.conf << 'ENDCONF'
+# Write nginx config template (PORT is substituted at runtime by envsubst)
+RUN cat > /etc/nginx/templates/default.conf.template << 'ENDCONF'
 server {
-    listen 80;
+    listen ${PORT};
     root /usr/share/nginx/html;
     index index.html;
 
-    # Gzip — critical for CanvasKit WASM (6.8MB -> ~2MB)
     gzip on;
-    gzip_types application/javascript application/wasm application/json text/css text/html text/plain;
+    gzip_types application/javascript application/wasm application/json text/css text/plain;
     gzip_min_length 256;
 
-    # Cache static assets
     location ~* \.(js|css|wasm|png|jpg|ico|json)$ {
         expires 1h;
         add_header Cache-Control "public, immutable";
     }
 
-    # SPA fallback
     location / {
         try_files $uri $uri/ /index.html;
     }
 }
 ENDCONF
+
+# Remove default config (template will generate it)
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+ENV PORT=80
 
 EXPOSE 80
 
