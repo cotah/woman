@@ -7,14 +7,17 @@ import 'package:record/record.dart';
 
 import '../../core/services/contacts_service.dart';
 import '../../core/services/settings_service.dart';
+import '../../core/storage/secure_storage.dart';
 import 'permissions_step.dart';
+import 'voice_activation_step.dart';
 
 /// Multi-step onboarding flow:
 /// 0 - Welcome
 /// 1 - Permissions (location, notifications, microphone)
-/// 2 - Add first trusted contact
-/// 3 - Set emergency message
-/// 4 - Completion
+/// 2 - Voice activation setup (custom word + voice recording)
+/// 3 - Add first trusted contact
+/// 4 - Set emergency message
+/// 5 - Completion
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -25,7 +28,7 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final _pageController = PageController();
   int _currentStep = 0;
-  static const _totalSteps = 5;
+  static const _totalSteps = 6;
 
   // Permission state
   bool _locationGranted = false;
@@ -36,6 +39,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _contactNameController = TextEditingController();
   final _contactPhoneController = TextEditingController();
   bool _isSavingContact = false;
+
+  // Voice activation
+  String _activationWord = '';
+  List<String> _voiceRecordingPaths = [];
 
   // Emergency message
   final _emergencyMessageController = TextEditingController(
@@ -223,8 +230,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _nextStep();
   }
 
-  void _completeOnboarding() {
-    context.go('/home');
+  Future<void> _completeOnboarding() async {
+    try {
+      final storage = context.read<SecureStorage>();
+      await storage.setOnboardingComplete();
+      if (_activationWord.isNotEmpty) {
+        await storage.setActivationWord(_activationWord);
+      }
+    } catch (e) {
+      debugPrint('[Onboarding] Failed to save completion flag: $e');
+    }
+    if (mounted) context.go('/home');
+  }
+
+  void _onVoiceComplete(String word, List<String> paths) {
+    _activationWord = word;
+    _voiceRecordingPaths = paths;
+    _nextStep();
   }
 
   @override
@@ -297,6 +319,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                     ],
                     onContinue: _nextStep,
+                  ),
+                  VoiceActivationStep(
+                    onContinue: _nextStep,
+                    onSkip: _nextStep,
+                    onComplete: _onVoiceComplete,
                   ),
                   _AddContactStep(
                     nameController: _contactNameController,

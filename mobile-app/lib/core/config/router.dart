@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../auth/auth_service.dart';
 import '../auth/auth_state.dart';
+import '../storage/secure_storage.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
@@ -27,11 +28,15 @@ import '../../features/diagnostics/system_readiness_screen.dart';
 /// Builds the application router with auth-based redirects.
 ///
 /// Uses the existing [AuthService] and [AuthState] from core/auth.
-GoRouter buildRouter(AuthService authService) {
+GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
+  // Track whether onboarding has been checked for this session
+  bool onboardingChecked = false;
+  bool onboardingComplete = false;
+
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: authService,
-    redirect: (context, state) {
+    redirect: (context, state) async {
       final authState = authService.state;
       final path = state.uri.path;
 
@@ -44,11 +49,26 @@ GoRouter buildRouter(AuthService authService) {
       // Not authenticated -> login (unless already on auth routes)
       final authPaths = ['/auth/login', '/auth/register', '/disclaimer'];
       if (!authState.isAuthenticated) {
+        onboardingChecked = false; // Reset on logout
         return authPaths.contains(path) ? null : '/auth/login';
       }
 
-      // Authenticated but on auth/splash -> go home
-      if (path == '/splash' || path.startsWith('/auth/')) {
+      // Authenticated — check onboarding status once per session
+      if (!onboardingChecked && secureStorage != null) {
+        onboardingComplete = await secureStorage.isOnboardingComplete();
+        onboardingChecked = true;
+      }
+
+      // Authenticated but hasn't completed onboarding -> go to onboarding
+      if (!onboardingComplete && path != '/onboarding') {
+        if (path == '/splash' || path.startsWith('/auth/')) {
+          return '/onboarding';
+        }
+      }
+
+      // Authenticated + onboarded but on splash/auth -> go home
+      if (onboardingComplete &&
+          (path == '/splash' || path.startsWith('/auth/'))) {
         return '/home';
       }
 

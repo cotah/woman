@@ -6,6 +6,8 @@ class SecureStorage {
   static const _userIdKey = 'user_id';
   static const _coercionPinKey = 'coercion_pin_hash';
   static const _fcmTokenKey = 'fcm_token';
+  static const _onboardingCompleteKey = 'onboarding_complete';
+  static const _activationWordKey = 'activation_word';
 
   final FlutterSecureStorage _storage;
 
@@ -62,6 +64,24 @@ class SecureStorage {
 
   Future<void> setFcmToken(String token) =>
       _storage.write(key: _fcmTokenKey, value: token);
+
+  // -- Onboarding --
+
+  Future<bool> isOnboardingComplete() async {
+    final value = await _storage.read(key: _onboardingCompleteKey);
+    return value == 'true';
+  }
+
+  Future<void> setOnboardingComplete() =>
+      _storage.write(key: _onboardingCompleteKey, value: 'true');
+
+  // -- Activation Word --
+
+  Future<String?> getActivationWord() =>
+      _storage.read(key: _activationWordKey);
+
+  Future<void> setActivationWord(String word) =>
+      _storage.write(key: _activationWordKey, value: word);
 
   // -- Generic --
 

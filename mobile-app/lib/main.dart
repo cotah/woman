@@ -128,7 +128,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
-    _router = buildRouter(_authService);
+    _router = buildRouter(_authService, secureStorage: widget.secureStorage);
 
     // Initialize notifications and attempt auto-login.
     _notificationService.initialize();
@@ -183,4 +183,3 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     );
   }
 }
-
