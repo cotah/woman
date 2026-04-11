@@ -4,11 +4,14 @@ FROM instrumentisto/flutter:3 AS build
 WORKDIR /app
 
 ARG MAPBOX_TOKEN=""
+ARG ENVIRONMENT=staging
 
 COPY . ./
 
 RUN flutter pub get
-RUN flutter build web --release --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
+RUN flutter build web --release \
+    --dart-define=ENVIRONMENT=$ENVIRONMENT \
+    --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
 
 # ── Stage 2: Serve with nginx ───────────────────
 FROM nginx:alpine
