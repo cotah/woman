@@ -19,7 +19,8 @@ FROM nginx:alpine
 COPY --from=build /app/build/web /usr/share/nginx/html
 
 # Write nginx config template (PORT is substituted at runtime by envsubst)
-RUN cat > /etc/nginx/templates/default.conf.template << 'ENDCONF'
+RUN mkdir -p /etc/nginx/templates && \
+    cat > /etc/nginx/templates/default.conf.template << 'ENDCONF'
 server {
     listen ${PORT};
     root /usr/share/nginx/html;
