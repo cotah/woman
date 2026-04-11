@@ -37,7 +37,7 @@ void main() async {
   // Initialize environment config.
   // Environment is set via --dart-define=ENVIRONMENT=dev|staging|prod
   // Defaults to prod for release safety.
-  const envName = String.fromEnvironment('ENVIRONMENT', defaultValue: 'prod');
+  const envName = String.fromEnvironment('ENVIRONMENT', defaultValue: 'dev');
   final env = switch (envName) {
     'dev' => Environment.dev,
     'staging' => Environment.staging,
