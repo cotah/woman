@@ -97,11 +97,8 @@ class LocationTrackerService extends ChangeNotifier {
   Future<void> _captureSnapshot() async {
     try {
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 0,
-          timeLimit: Duration(seconds: 15),
-        ),
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
       );
 
       _lastPosition = position;

@@ -247,7 +247,7 @@ export class TrackingService {
 
     place.isFlagged = true;
     place.isConfirmedSafe = false;
-    place.flagReason = reason;
+    place.flagReason = reason ?? null;
 
     return this.placeRepo.save(place);
   }

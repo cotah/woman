@@ -76,3 +76,4 @@ class ApiEndpoints {
 
   // ── Health / Diagnostics ───────────────────────
   static const String health = '/health';
+}
