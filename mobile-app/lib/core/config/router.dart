@@ -29,8 +29,8 @@ import '../../features/diagnostics/system_readiness_screen.dart';
 ///
 /// Uses the existing [AuthService] and [AuthState] from core/auth.
 GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
-  // Track whether onboarding has been checked for this session
-  bool onboardingChecked = false;
+  // Track whether onboarding has been checked for this session/user
+  String? onboardingCheckedForUser;
   bool onboardingComplete = false;
 
   return GoRouter(
@@ -49,14 +49,19 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       // Not authenticated -> login (unless already on auth routes)
       final authPaths = ['/auth/login', '/auth/register', '/disclaimer'];
       if (!authState.isAuthenticated) {
-        onboardingChecked = false; // Reset on logout
+        onboardingCheckedForUser = null; // Reset on logout
+        onboardingComplete = false;
         return authPaths.contains(path) ? null : '/auth/login';
       }
 
-      // Authenticated — check onboarding status once per session
-      if (!onboardingChecked && secureStorage != null) {
-        onboardingComplete = await secureStorage.isOnboardingComplete();
-        onboardingChecked = true;
+      // Authenticated — check onboarding status once per user session
+      final currentUserId = authState.user?.id;
+      if (secureStorage != null &&
+          onboardingCheckedForUser != currentUserId) {
+        onboardingComplete = await secureStorage.isOnboardingComplete(
+          userId: currentUserId,
+        );
+        onboardingCheckedForUser = currentUserId;
       }
 
       // Authenticated but hasn't completed onboarding -> go to onboarding

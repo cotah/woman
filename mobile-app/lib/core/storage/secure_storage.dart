@@ -65,15 +65,30 @@ class SecureStorage {
   Future<void> setFcmToken(String token) =>
       _storage.write(key: _fcmTokenKey, value: token);
 
-  // -- Onboarding --
+  // -- Onboarding (per-user) --
 
-  Future<bool> isOnboardingComplete() async {
+  /// Check if onboarding is complete for a specific user.
+  /// If [userId] is null, falls back to the generic key (legacy).
+  Future<bool> isOnboardingComplete({String? userId}) async {
+    if (userId != null) {
+      final value =
+          await _storage.read(key: '${_onboardingCompleteKey}_$userId');
+      return value == 'true';
+    }
+    // Legacy fallback (generic key)
     final value = await _storage.read(key: _onboardingCompleteKey);
     return value == 'true';
   }
 
-  Future<void> setOnboardingComplete() =>
-      _storage.write(key: _onboardingCompleteKey, value: 'true');
+  /// Mark onboarding as complete for a specific user.
+  Future<void> setOnboardingComplete({String? userId}) async {
+    if (userId != null) {
+      await _storage.write(
+          key: '${_onboardingCompleteKey}_$userId', value: 'true');
+    }
+    // Also set generic key for legacy compatibility
+    await _storage.write(key: _onboardingCompleteKey, value: 'true');
+  }
 
   // -- Activation Word --
 

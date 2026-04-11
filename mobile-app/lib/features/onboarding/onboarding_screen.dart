@@ -3,9 +3,14 @@ import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
-import 'package:record/record.dart';
 
+import 'package:intl_phone_field/intl_phone_field.dart';
+import 'package:intl_phone_field/phone_number.dart';
+
+import '../../core/auth/auth_service.dart';
+import '../../core/services/background_service.dart';
 import '../../core/services/contacts_service.dart';
+import '../../core/services/location_tracker_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/storage/secure_storage.dart';
 import 'permissions_step.dart';
@@ -37,7 +42,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   // Contact form
   final _contactNameController = TextEditingController();
-  final _contactPhoneController = TextEditingController();
+  String _contactPhone = '';
   bool _isSavingContact = false;
 
   // Voice activation
@@ -74,7 +79,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void dispose() {
     _pageController.dispose();
     _contactNameController.dispose();
-    _contactPhoneController.dispose();
     _emergencyMessageController.dispose();
     super.dispose();
   }
@@ -190,7 +194,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _saveContact() async {
     final name = _contactNameController.text.trim();
-    final phone = _contactPhoneController.text.trim();
+    final phone = _contactPhone.trim();
 
     if (name.isEmpty || phone.isEmpty) {
       _nextStep(); // Skip if empty
@@ -233,10 +237,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _completeOnboarding() async {
     try {
       final storage = context.read<SecureStorage>();
-      await storage.setOnboardingComplete();
+      final authService = context.read<AuthService>();
+      final userId = authService.state.user?.id;
+      await storage.setOnboardingComplete(userId: userId);
       if (_activationWord.isNotEmpty) {
         await storage.setActivationWord(_activationWord);
       }
+
+      // Start always-on background service — the user authorized this
+      // by completing onboarding (consent is given in the completion step)
+      final backgroundService = context.read<BackgroundService>();
+      await backgroundService.startAlwaysOnMode();
+      await backgroundService.requestBatteryOptimizationExemption();
+
+      // Start 24/7 location tracking
+      final locationTracker = context.read<LocationTrackerService>();
+      await locationTracker.startTracking();
     } catch (e) {
       debugPrint('[Onboarding] Failed to save completion flag: $e');
     }
@@ -327,8 +343,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   _AddContactStep(
                     nameController: _contactNameController,
-                    phoneController: _contactPhoneController,
                     isSaving: _isSavingContact,
+                    onPhoneChanged: (phone) => _contactPhone = phone,
                     onContinue: _saveContact,
                     onSkip: _nextStep,
                   ),
@@ -451,14 +467,14 @@ class _WelcomeStep extends StatelessWidget {
 
 class _AddContactStep extends StatelessWidget {
   final TextEditingController nameController;
-  final TextEditingController phoneController;
+  final ValueChanged<String> onPhoneChanged;
   final bool isSaving;
   final VoidCallback onContinue;
   final VoidCallback onSkip;
 
   const _AddContactStep({
     required this.nameController,
-    required this.phoneController,
+    required this.onPhoneChanged,
     required this.isSaving,
     required this.onContinue,
     required this.onSkip,
@@ -499,15 +515,21 @@ class _AddContactStep extends StatelessWidget {
             textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: phoneController,
-            decoration: const InputDecoration(
+          IntlPhoneField(
+            decoration: InputDecoration(
               labelText: 'Phone number',
-              prefixIcon: Icon(Icons.phone_outlined),
-              hintText: '+55 11 99999-0000',
+              counterText: '',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
+            initialCountryCode: 'BR',
+            disableLengthCheck: true,
             keyboardType: TextInputType.phone,
             textInputAction: TextInputAction.done,
+            onChanged: (PhoneNumber phone) {
+              onPhoneChanged(phone.completeNumber);
+            },
           ),
           const Spacer(),
           SizedBox(
@@ -623,51 +645,136 @@ class _CompletionStep extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Spacer(flex: 2),
           Container(
             width: 96,
             height: 96,
             decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
               shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  theme.colorScheme.primary,
+                  theme.colorScheme.tertiary,
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                  blurRadius: 20,
+                  spreadRadius: 4,
+                ),
+              ],
             ),
-            child: Icon(
-              Icons.check_rounded,
+            child: const Icon(
+              Icons.shield_rounded,
               size: 48,
-              color: theme.colorScheme.primary,
+              color: Colors.white,
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
           Text(
-            'You\'re all set',
+            'You\'re protected',
             style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.bold,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(
-            'Your safety network is configured. You can adjust all settings '
-            'at any time. We recommend testing the alert flow from the dashboard.',
+            'SafeCircle will run in the background 24/7 to keep you safe. '
+            'Your safety guardian is always active.',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 24),
+
+          // Privacy & encryption guarantee cards
+          _InfoChip(
+            icon: Icons.lock_outline,
+            text: 'All data encrypted end-to-end',
+            theme: theme,
+          ),
+          const SizedBox(height: 10),
+          _InfoChip(
+            icon: Icons.visibility_off_outlined,
+            text: 'No data shared without your consent',
+            theme: theme,
+          ),
+          const SizedBox(height: 10),
+          _InfoChip(
+            icon: Icons.battery_saver,
+            text: 'Optimized for minimal battery usage',
+            theme: theme,
+          ),
+
           const Spacer(flex: 3),
           SizedBox(
             width: double.infinity,
             height: 56,
             child: FilledButton(
               onPressed: onComplete,
-              child: const Text('Go to dashboard'),
+              child: const Text('Activate SafeCircle'),
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 8),
+          Text(
+            'By activating, you authorize SafeCircle to run continuously '
+            'in the background for your protection.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final ThemeData theme;
+
+  const _InfoChip({
+    required this.icon,
+    required this.text,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
         ],
       ),
     );

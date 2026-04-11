@@ -20,6 +20,8 @@ import 'core/services/websocket_service.dart';
 import 'core/services/offline_queue_service.dart';
 import 'core/services/sms_fallback_service.dart';
 import 'core/services/background_service.dart';
+import 'core/services/location_tracker_service.dart';
+import 'core/services/learned_places_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_notifier.dart';
@@ -83,6 +85,8 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   late final OfflineQueueService _offlineQueueService;
   late final SmsFallbackService _smsFallbackService;
   late final BackgroundService _backgroundService;
+  late final LocationTrackerService _locationTrackerService;
+  late final LearnedPlacesService _learnedPlacesService;
   late final ThemeNotifier _themeNotifier;
   late final GoRouter _router;
 
@@ -125,6 +129,17 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _offlineQueueService.initialize();
     _smsFallbackService = SmsFallbackService();
     _backgroundService = BackgroundService();
+    _backgroundService.initialize();
+
+    _locationTrackerService = LocationTrackerService(
+      apiClient: widget.apiClient,
+    );
+    _locationTrackerService.initialize();
+
+    _learnedPlacesService = LearnedPlacesService(
+      tracker: _locationTrackerService,
+    );
+    _learnedPlacesService.initialize();
     _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
@@ -144,6 +159,8 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _incidentService.dispose();
     _journeyService.dispose();
     _backgroundService.dispose();
+    _locationTrackerService.dispose();
+    _learnedPlacesService.dispose();
     super.dispose();
   }
 
@@ -162,6 +179,8 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         ChangeNotifierProvider.value(value: _contactsService),
         ChangeNotifierProvider.value(value: _offlineQueueService),
         ChangeNotifierProvider.value(value: _backgroundService),
+        ChangeNotifierProvider.value(value: _locationTrackerService),
+        ChangeNotifierProvider.value(value: _learnedPlacesService),
         Provider.value(value: _smsFallbackService),
         Provider.value(value: widget.apiClient),
         Provider.value(value: widget.secureStorage),

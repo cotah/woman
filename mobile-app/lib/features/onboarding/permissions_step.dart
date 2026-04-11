@@ -154,20 +154,27 @@ class _PermissionCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            if (permission.isGranted)
-              Icon(
-                Icons.check_circle,
-                color: theme.colorScheme.primary,
-                size: 28,
-              )
-            else
-              SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: permission.onRequest,
-                  child: const Text('Allow'),
-                ),
-              ),
+            SizedBox(
+              width: 80,
+              child: permission.isGranted
+                  ? Center(
+                      child: Icon(
+                        Icons.check_circle,
+                        color: theme.colorScheme.primary,
+                        size: 28,
+                      ),
+                    )
+                  : SizedBox(
+                      height: 40,
+                      child: OutlinedButton(
+                        onPressed: permission.onRequest,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        child: const Text('Allow'),
+                      ),
+                    ),
+            ),
           ],
         ),
       ),

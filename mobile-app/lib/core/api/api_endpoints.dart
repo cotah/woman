@@ -65,7 +65,14 @@ class ApiEndpoints {
   static String journeyCheckinResponse(String id) => '/journey/$id/checkin-response';
   static String journeyCancel(String id) => '/journey/$id';
 
+  // ── Location Tracking (always-on) ──────────────
+  static const String locationTrack = '/location/track';
+  static const String locationTrackBatch = '/location/track/batch';
+  static const String locationTrackLatest = '/location/track/latest';
+  static const String learnedPlaces = '/location/places';
+  static const String learnedPlacesSync = '/location/places/sync';
+  static String placeConfirmSafe(String id) => '/location/places/$id/safe';
+  static String placeFlag(String id) => '/location/places/$id/flag';
+
   // ── Health / Diagnostics ───────────────────────
   static const String health = '/health';
-  static const String pilotReadiness = '/health/pilot';
-}

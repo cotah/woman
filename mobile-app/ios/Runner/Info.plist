@@ -53,6 +53,27 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- Background modes for always-on safety service -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>audio</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<!-- Location permission descriptions -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SafeCircle needs your location to share it with trusted contacts when you trigger an alert.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>SafeCircle needs background location access to protect you 24/7. Your location is only shared with your trusted contacts during an emergency and is always encrypted.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>SafeCircle needs background location access to keep your safety guardian running at all times. All data is encrypted.</string>
+	<!-- Microphone permission -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SafeCircle uses the microphone to detect your activation word and record audio evidence during emergencies. Audio is encrypted and never shared without your consent.</string>
+	<!-- Notifications -->
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>SafeCircle sends notifications for emergency alerts and safety status updates.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
