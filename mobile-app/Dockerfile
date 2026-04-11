@@ -15,8 +15,8 @@ FROM nginx:alpine
 
 COPY --from=build /app/build/web /usr/share/nginx/html
 
-# Add WASM MIME type to the default mime.types and write nginx config
-RUN echo 'application/wasm wasm;' >> /etc/nginx/mime.types && \
+# Add WASM MIME type inside the types { } block in mime.types, then write nginx config
+RUN sed -i 's|}$|    application/wasm  wasm;\n}|' /etc/nginx/mime.types && \
     cat > /etc/nginx/conf.d/default.conf << 'ENDCONF'
 server {
     listen 80;
