@@ -30,11 +30,24 @@ server {
     gzip_types application/javascript application/wasm application/json text/css text/plain;
     gzip_min_length 256;
 
-    location ~* \.(js|css|wasm|png|jpg|ico|json)$ {
-        expires 1h;
+    # Never cache index.html and service worker (always get latest deploy)
+    location ~ ^/(index\.html|flutter_service_worker\.js|version\.json)$ {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+    }
+
+    # Never cache main.dart.js (Flutter doesn't hash the filename)
+    location = /main.dart.js {
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+
+    # Cache assets with hashed filenames (fonts, images, etc.)
+    location /assets/ {
+        expires 7d;
         add_header Cache-Control "public, immutable";
     }
 
+    # SPA fallback
     location / {
         try_files $uri $uri/ /index.html;
     }
