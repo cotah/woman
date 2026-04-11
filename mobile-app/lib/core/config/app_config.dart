@@ -21,6 +21,19 @@ class AppConfig {
   static AppConfig get instance => _instance;
 
   static void initialize(Environment env) {
+    // On web, auto-detect environment from the browser URL.
+    // This overrides the dart-define value so deploys always work correctly.
+    if (kIsWeb) {
+      final host = Uri.base.host;
+      if (host == 'localhost' || host == '127.0.0.1') {
+        env = Environment.dev;
+      } else if (host.contains('railway.app')) {
+        env = Environment.staging;
+      } else {
+        env = Environment.prod;
+      }
+    }
+
     switch (env) {
       case Environment.dev:
         // On web (Chrome), use localhost directly.
