@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
+import 'package:intl_phone_field/phone_number.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/trusted_contact.dart';
@@ -20,8 +22,9 @@ class AddContactScreen extends StatefulWidget {
 class _AddContactScreenState extends State<AddContactScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
+  String _fullPhoneNumber = '';
+  String _initialPhone = '';
   String _relationship = 'Friend';
   bool _isLoading = false;
   bool _isDeleting = false;
@@ -59,7 +62,8 @@ class _AddContactScreenState extends State<AddContactScreen> {
 
     if (contact != null) {
       _nameController.text = contact.name;
-      _phoneController.text = contact.phone;
+      _fullPhoneNumber = contact.phone;
+      _initialPhone = contact.phone;
       _emailController.text = contact.email ?? '';
       _relationship = contact.relationship ?? 'Friend';
       _canReceiveSms = contact.canReceiveSms;
@@ -73,7 +77,6 @@ class _AddContactScreenState extends State<AddContactScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _phoneController.dispose();
     _emailController.dispose();
     super.dispose();
   }
@@ -86,7 +89,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
       final contactsService = context.read<ContactsService>();
       final data = {
         'name': _nameController.text.trim(),
-        'phone': _phoneController.text.trim(),
+        'phone': _fullPhoneNumber,
         'relationship': _relationship,
         'canReceiveSms': _canReceiveSms,
         'canReceivePush': _canReceivePush,
@@ -196,17 +199,27 @@ class _AddContactScreenState extends State<AddContactScreen> {
               ),
               const SizedBox(height: 16),
 
-              TextFormField(
-                controller: _phoneController,
+              IntlPhoneField(
                 decoration: const InputDecoration(
                   labelText: 'Phone number',
-                  prefixIcon: Icon(Icons.phone_outlined),
-                  hintText: '+55 11 99999-0000',
+                  counterText: '',
                 ),
+                initialCountryCode: 'BR',
+                initialValue: _initialPhone.isNotEmpty
+                    ? _initialPhone.replaceFirst(RegExp(r'^\+\d+\s?'), '')
+                    : null,
+                disableLengthCheck: false,
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? 'Phone number is required' : null,
+                onChanged: (PhoneNumber phone) {
+                  _fullPhoneNumber = phone.completeNumber;
+                },
+                validator: (PhoneNumber? phone) {
+                  if (phone == null || phone.number.isEmpty) {
+                    return 'Phone number is required';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
 

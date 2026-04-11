@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
+import 'package:intl_phone_field/phone_number.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/auth_service.dart';
@@ -16,8 +18,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  String _fullPhoneNumber = '';
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
@@ -28,7 +30,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -52,7 +53,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         firstName: nameParts.first,
         lastName: nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '',
-        phone: _phoneController.text.trim(),
+        phone: _fullPhoneNumber,
       );
       // Router redirect handles navigation on auth state change.
     } catch (e) {
@@ -142,18 +143,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Phone
-                TextFormField(
-                  controller: _phoneController,
+                // Phone with country flag and code
+                IntlPhoneField(
                   decoration: const InputDecoration(
                     labelText: 'Phone number',
-                    prefixIcon: Icon(Icons.phone_outlined),
+                    counterText: '',
                   ),
+                  initialCountryCode: 'BR',
+                  disableLengthCheck: false,
                   keyboardType: TextInputType.phone,
-                  autofillHints: const [AutofillHints.telephoneNumber],
                   textInputAction: TextInputAction.next,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
+                  onChanged: (PhoneNumber phone) {
+                    _fullPhoneNumber = phone.completeNumber;
+                  },
+                  validator: (PhoneNumber? phone) {
+                    if (phone == null || phone.number.isEmpty) {
                       return 'Please enter your phone number';
                     }
                     return null;

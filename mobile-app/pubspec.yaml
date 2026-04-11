@@ -47,6 +47,9 @@ dependencies:
   # SMS fallback
   url_launcher: ^6.2.0
 
+  # International phone input with country flags
+  intl_phone_field: ^3.2.0
+
   # Utilities
   uuid: ^4.4.0
   intl: 0.20.2
