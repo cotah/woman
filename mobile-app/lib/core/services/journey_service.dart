@@ -160,6 +160,25 @@ class JourneyService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Respond to a safety check-in push notification.
+  /// [response] is either 'ok' (I'm fine) or 'help' (I need help).
+  Future<Journey> respondToCheckin(String response) async {
+    if (_activeJourney == null) {
+      throw StateError('No active journey to respond to');
+    }
+
+    final resp = await _apiClient.post(
+      ApiEndpoints.journeyCheckinResponse(_activeJourney!.id),
+      data: {'response': response},
+    );
+
+    final journey =
+        Journey.fromJson(resp.data as Map<String, dynamic>);
+    _activeJourney = journey;
+    notifyListeners();
+    return journey;
+  }
+
   /// Cancel the journey.
   Future<void> cancel() async {
     if (_activeJourney == null) {

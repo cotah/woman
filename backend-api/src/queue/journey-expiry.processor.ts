@@ -20,13 +20,17 @@ export class JourneyExpiryProcessor extends WorkerHost {
   async process(job: Job<JourneyExpiryJobData>): Promise<void> {
     const { journeyId } = job.data;
 
-    this.logger.log(`Processing expiry for journey ${journeyId}`);
-
     try {
-      await this.journeyService.expire(journeyId);
+      if (job.name === 'smart-checkin') {
+        this.logger.log(`Processing smart check-in for journey ${journeyId}`);
+        await this.journeyService.smartCheckin(journeyId);
+      } else {
+        this.logger.log(`Processing expiry for journey ${journeyId}`);
+        await this.journeyService.expire(journeyId);
+      }
     } catch (error) {
       this.logger.error(
-        `Failed to process expiry for journey ${journeyId}: ${error.message}`,
+        `Failed to process ${job.name} for journey ${journeyId}: ${error.message}`,
         error.stack,
       );
       throw error;

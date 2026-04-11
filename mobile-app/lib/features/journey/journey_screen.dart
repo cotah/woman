@@ -28,6 +28,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
   int _selectedMinutes = 30;
   bool _isStarting = false;
   String? _selectedDestination; // 'Home' or 'Work' — which is selected to start
+  final _durationController = TextEditingController(text: '30');
 
   // Saved destination coords (persisted via SharedPreferences).
   double? _homeLat;
@@ -35,12 +36,25 @@ class _JourneyScreenState extends State<JourneyScreen> {
   double? _workLat;
   double? _workLng;
 
-  static const _durations = [10, 20, 30, 60];
-
   @override
   void initState() {
     super.initState();
     _loadSavedDestinations();
+    _durationController.addListener(_onDurationChanged);
+  }
+
+  void _onDurationChanged() {
+    final value = int.tryParse(_durationController.text);
+    if (value != null && value >= 5 && value <= 480) {
+      setState(() => _selectedMinutes = value);
+    }
+  }
+
+  @override
+  void dispose() {
+    _durationController.removeListener(_onDurationChanged);
+    _durationController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSavedDestinations() async {
@@ -567,7 +581,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
                 const SizedBox(height: 24),
               ],
 
-              // Duration selector
+              // Duration selector — manual input
               Text(
                 'Trip duration',
                 style: theme.textTheme.titleSmall?.copyWith(
@@ -576,21 +590,63 @@ class _JourneyScreenState extends State<JourneyScreen> {
               ),
               const SizedBox(height: 12),
               Row(
-                children: _durations.map((minutes) {
-                  final isSelected = _selectedMinutes == minutes;
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ChoiceChip(
-                        label: Text('${minutes}m'),
-                        selected: isSelected,
-                        onSelected: (_) {
-                          setState(() => _selectedMinutes = minutes);
-                        },
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 80,
+                    child: TextField(
+                      controller: _durationController,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
-                  );
-                }).toList(),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'minutes',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Slider(
+                value: _selectedMinutes.clamp(5, 480).toDouble(),
+                min: 5,
+                max: 480,
+                divisions: 95,
+                label: '${_selectedMinutes}min',
+                onChanged: (value) {
+                  final minutes = value.round();
+                  setState(() {
+                    _selectedMinutes = minutes;
+                    _durationController.removeListener(_onDurationChanged);
+                    _durationController.text = minutes.toString();
+                    _durationController.addListener(_onDurationChanged);
+                  });
+                },
+              ),
+              Text(
+                _selectedMinutes < 60
+                    ? '$_selectedMinutes min'
+                    : '${_selectedMinutes ~/ 60}h ${_selectedMinutes % 60}min',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
               ),
 
               const Spacer(),

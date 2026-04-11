@@ -66,6 +66,22 @@ export class Journey {
   @Column({ name: 'is_test_mode', default: false })
   isTestMode: boolean;
 
+  /// Duration the AI estimated for this route based on history (null if no data).
+  @Column({ name: 'ai_estimated_minutes', type: 'int', nullable: true })
+  aiEstimatedMinutes: number | null;
+
+  /// Whether a safety check-in push was already sent for this journey.
+  @Column({ name: 'checkin_sent', default: false })
+  checkinSent: boolean;
+
+  /// User's response to the safety check-in push: 'ok' or 'help' or null.
+  @Column({ name: 'checkin_response', type: 'varchar', length: 10, nullable: true })
+  checkinResponse: string | null;
+
+  /// When the check-in push was sent.
+  @Column({ name: 'checkin_sent_at', type: 'timestamptz', nullable: true })
+  checkinSentAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

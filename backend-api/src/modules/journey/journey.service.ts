@@ -12,6 +12,7 @@ import { Queue } from 'bullmq';
 import { Journey, JourneyStatus } from './entities/journey.entity';
 import { CreateJourneyDto, ExtendJourneyDto, JourneyLocationDto } from './dto/create-journey.dto';
 import { IncidentsService } from '../incidents/incidents.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TriggerType } from '../incidents/entities/incident.entity';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class JourneyService {
     @InjectQueue('journey-expiry')
     private readonly expiryQueue: Queue,
     private readonly incidentsService: IncidentsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -60,6 +62,10 @@ export class JourneyService {
       isTestMode: dto.isTestMode ?? false,
     } as Partial<Journey>);
 
+    // AI estimate: calculate average duration for similar routes
+    const aiEstimate = await this.estimateDuration(userId, dto.destLatitude, dto.destLongitude);
+    journey.aiEstimatedMinutes = aiEstimate;
+
     const saved = await this.journeyRepo.save(journey);
 
     // Schedule expiry job
@@ -75,9 +81,24 @@ export class JourneyService {
       },
     );
 
+    // If AI has an estimate and user set time is much less, schedule a smart check-in
+    if (aiEstimate && dto.durationMinutes < aiEstimate) {
+      const checkinDelayMs = dto.durationMinutes * 60 * 1000;
+      await this.expiryQueue.add(
+        'smart-checkin',
+        { journeyId: saved.id },
+        {
+          delay: Math.max(checkinDelayMs, 0),
+          jobId: `journey-checkin-${saved.id}`,
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+    }
+
     this.logger.log(
       `Journey ${saved.id} created for user ${userId} ` +
-        `(duration=${dto.durationMinutes}min, expires=${expiresAt.toISOString()})`,
+        `(duration=${dto.durationMinutes}min, aiEstimate=${aiEstimate ?? 'none'}, expires=${expiresAt.toISOString()})`,
     );
 
     return saved;
@@ -248,8 +269,8 @@ export class JourneyService {
 
   /**
    * Called by the queue processor when a journey expires.
-   * If the journey is still active, mark it expired and escalate
-   * to an incident (unless in test mode).
+   * Instead of immediately escalating, sends a safety check-in push first.
+   * If the user doesn't respond within 5 minutes, then escalates.
    */
   async expire(journeyId: string): Promise<void> {
     const journey = await this.journeyRepo.findOne({
@@ -268,10 +289,195 @@ export class JourneyService {
       return;
     }
 
+    // If check-in was already sent and user responded 'help', escalate now
+    if (journey.checkinSent && journey.checkinResponse === 'help') {
+      await this.escalateJourney(journey);
+      return;
+    }
+
+    // If check-in was already sent but no response after grace period, escalate
+    if (journey.checkinSent && !journey.checkinResponse) {
+      this.logger.warn(`Journey ${journeyId} expired — no check-in response, escalating`);
+      await this.escalateJourney(journey);
+      return;
+    }
+
+    // If check-in response is 'ok', the user already extended — skip
+    if (journey.checkinSent && journey.checkinResponse === 'ok') {
+      this.logger.log(`Journey ${journeyId} check-in was ok, skipping escalation`);
+      return;
+    }
+
+    // First expiry: send safety check-in instead of immediate escalation
+    journey.checkinSent = true;
+    journey.checkinSentAt = new Date();
+    await this.journeyRepo.save(journey);
+
+    this.logger.log(`Journey ${journeyId} expired — sending safety check-in push`);
+
+    // Send push notification asking "Are you okay?"
+    try {
+      await this.notificationsService.sendSafetyCheckin(
+        journey.userId,
+        journeyId,
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to send check-in push for journey ${journeyId}: ${error.message}`);
+    }
+
+    // Schedule final escalation in 5 minutes if no response
+    await this.expiryQueue.add(
+      'expire',
+      { journeyId },
+      {
+        delay: 5 * 60 * 1000, // 5 minutes grace period
+        jobId: `journey-escalation-${journeyId}`,
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+  }
+
+  /**
+   * Handle user's response to the safety check-in push.
+   * 'ok' = user is fine, extend journey by 30 minutes
+   * 'help' = user needs help, escalate immediately
+   */
+  async respondToCheckin(
+    journeyId: string,
+    userId: string,
+    response: 'ok' | 'help',
+  ): Promise<Journey> {
+    const journey = await this.findOneOrFail(journeyId, userId);
+
+    if (journey.status !== JourneyStatus.ACTIVE) {
+      throw new BadRequestException(
+        `Cannot respond to check-in for journey in status "${journey.status}".`,
+      );
+    }
+
+    journey.checkinResponse = response;
+    await this.journeyRepo.save(journey);
+
+    if (response === 'ok') {
+      // User is fine — extend journey by 30 minutes
+      const newExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      journey.expiresAt = newExpiresAt;
+      journey.durationMinutes += 30;
+      journey.checkinSent = false;
+      journey.checkinResponse = null;
+      journey.checkinSentAt = null;
+      await this.journeyRepo.save(journey);
+
+      // Remove pending escalation and schedule new expiry
+      await this.removeExpiryJob(journeyId);
+      try {
+        const escalationJob = await this.expiryQueue.getJob(`journey-escalation-${journeyId}`);
+        if (escalationJob) await escalationJob.remove();
+      } catch (_) {}
+
+      await this.expiryQueue.add(
+        'expire',
+        { journeyId },
+        {
+          delay: 30 * 60 * 1000,
+          jobId: `journey-expiry-${journeyId}`,
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+
+      this.logger.log(`Journey ${journeyId} check-in OK — extended 30min`);
+    } else {
+      // User needs help — escalate now
+      this.logger.warn(`Journey ${journeyId} check-in HELP — escalating immediately`);
+      await this.escalateJourney(journey);
+    }
+
+    return journey;
+  }
+
+  /**
+   * Smart check-in: called by queue when AI thinks the user might be
+   * taking longer than usual (even before the timer expires).
+   */
+  async smartCheckin(journeyId: string): Promise<void> {
+    const journey = await this.journeyRepo.findOne({
+      where: { id: journeyId },
+    });
+
+    if (!journey || journey.status !== JourneyStatus.ACTIVE) return;
+    if (journey.checkinSent) return; // Already sent
+
+    this.logger.log(`Journey ${journeyId} — AI smart check-in triggered`);
+
+    try {
+      await this.notificationsService.sendSafetyCheckin(
+        journey.userId,
+        journeyId,
+      );
+      journey.checkinSent = true;
+      journey.checkinSentAt = new Date();
+      await this.journeyRepo.save(journey);
+    } catch (error) {
+      this.logger.warn(`Failed to send smart check-in for journey ${journeyId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Estimate journey duration based on user's past completed journeys
+   * to similar destinations (within 500m radius).
+   */
+  private async estimateDuration(
+    userId: string,
+    destLat: number,
+    destLng: number,
+  ): Promise<number | null> {
+    // Get completed journeys for this user
+    const pastJourneys = await this.journeyRepo.find({
+      where: { userId, status: JourneyStatus.COMPLETED },
+      order: { completedAt: 'DESC' },
+      take: 50,
+    });
+
+    if (pastJourneys.length === 0) return null;
+
+    // Filter to journeys with similar destinations (within 500m)
+    const similarJourneys = pastJourneys.filter((j) => {
+      const dist = this.haversineDistance(
+        destLat,
+        destLng,
+        Number(j.destLatitude),
+        Number(j.destLongitude),
+      );
+      return dist <= 500;
+    });
+
+    if (similarJourneys.length < 2) return null;
+
+    // Calculate average actual duration (startedAt to completedAt)
+    const durations = similarJourneys
+      .filter((j) => j.completedAt && j.startedAt)
+      .map((j) => {
+        return (j.completedAt.getTime() - j.startedAt.getTime()) / (60 * 1000);
+      });
+
+    if (durations.length === 0) return null;
+
+    const avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
+
+    // Add 20% buffer
+    return Math.round(avgDuration * 1.2);
+  }
+
+  /**
+   * Escalate a journey to an incident.
+   */
+  private async escalateJourney(journey: Journey): Promise<void> {
     journey.status = JourneyStatus.EXPIRED;
     await this.journeyRepo.save(journey);
 
-    this.logger.warn(`Journey ${journeyId} expired for user ${journey.userId}`);
+    this.logger.warn(`Journey ${journey.id} expired for user ${journey.userId}`);
 
     if (!journey.isTestMode) {
       try {
@@ -291,17 +497,17 @@ export class JourneyService {
         await this.journeyRepo.save(journey);
 
         this.logger.warn(
-          `Journey ${journeyId} escalated to incident ${incident.id}`,
+          `Journey ${journey.id} escalated to incident ${incident.id}`,
         );
       } catch (error) {
         this.logger.error(
-          `Failed to escalate journey ${journeyId}: ${error.message}`,
+          `Failed to escalate journey ${journey.id}: ${error.message}`,
           error.stack,
         );
       }
     } else {
       this.logger.log(
-        `Journey ${journeyId} is in test mode, skipping incident escalation`,
+        `Journey ${journey.id} is in test mode, skipping incident escalation`,
       );
     }
   }

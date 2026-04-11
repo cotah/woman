@@ -89,6 +89,18 @@ export class JourneyController {
     return this.journeyService.checkArrival(id, user.id, dto);
   }
 
+  @Post(':id/checkin-response')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Respond to safety check-in (ok or help)' })
+  @ApiResponse({ status: 200, description: 'Response recorded' })
+  async respondToCheckin(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { response: 'ok' | 'help' },
+  ) {
+    return this.journeyService.respondToCheckin(id, user.id, body.response);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel an active journey' })

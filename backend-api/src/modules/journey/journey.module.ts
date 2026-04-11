@@ -6,12 +6,14 @@ import { JourneyService } from './journey.service';
 import { JourneyController } from './journey.controller';
 import { JourneyExpiryProcessor } from '../../queue/journey-expiry.processor';
 import { IncidentsModule } from '../incidents/incidents.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Journey]),
     BullModule.registerQueue({ name: 'journey-expiry' }),
     IncidentsModule,
+    NotificationsModule,
   ],
   controllers: [JourneyController],
   providers: [JourneyService, JourneyExpiryProcessor],

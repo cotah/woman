@@ -323,6 +323,27 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * Send a safety check-in push notification to the user.
+   * Asks "Are you okay?" with options to respond yes/no.
+   */
+  async sendSafetyCheckin(userId: string, journeyId: string): Promise<void> {
+    this.logger.log(`Sending safety check-in push to user ${userId} for journey ${journeyId}`);
+
+    try {
+      await this.pushProvider.send(
+        { contactId: userId, name: 'User', locale: 'en' },
+        {
+          incidentId: journeyId,
+          userName: 'SafeCircle',
+          message: 'Your journey timer has ended. Are you okay? Open the app to respond.',
+        },
+      );
+    } catch (error) {
+      this.logger.warn(`Safety check-in push failed for user ${userId}: ${error.message}`);
+    }
+  }
+
   // ------------------------------------------------------------------
   // Private helpers
   // ------------------------------------------------------------------

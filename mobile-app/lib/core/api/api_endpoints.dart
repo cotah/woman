@@ -62,6 +62,7 @@ class ApiEndpoints {
   static String journeyCheckin(String id) => '/journey/$id/checkin';
   static String journeyComplete(String id) => '/journey/$id/complete';
   static String journeyLocation(String id) => '/journey/$id/location';
+  static String journeyCheckinResponse(String id) => '/journey/$id/checkin-response';
   static String journeyCancel(String id) => '/journey/$id';
 
   // ── Health / Diagnostics ───────────────────────
