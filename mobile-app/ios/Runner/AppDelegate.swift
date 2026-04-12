@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import CoreLocation
+import Speech
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, CLLocationManagerDelegate {
@@ -8,8 +9,14 @@ import CoreLocation
   /// Location manager for background & significant-change monitoring.
   private let locationManager = CLLocationManager()
 
-  /// Method channel to communicate with Flutter/Dart side.
+  /// Method channel for background service (location).
   private var methodChannel: FlutterMethodChannel?
+
+  /// Method channel for silent voice recognition.
+  private var voiceChannel: FlutterMethodChannel?
+
+  /// Native silent speech recognizer (no "ding" sounds).
+  private let silentSpeech = SilentSpeechRecognizer()
 
   /// UserDefaults key — mirrors Android's safecircle_always_on_enabled.
   private let alwaysOnKey = "safecircle_always_on_enabled"
@@ -33,13 +40,18 @@ import CoreLocation
     locationManager.desiredAccuracy = kCLLocationAccuracyBest
     locationManager.distanceFilter = 50 // Update every 50 meters
 
-    // Set up Method Channel
+    // Set up Method Channels
     if let controller = window?.rootViewController as? FlutterViewController {
       methodChannel = FlutterMethodChannel(
         name: "com.safecircle.app/background",
         binaryMessenger: controller.binaryMessenger
       )
+      voiceChannel = FlutterMethodChannel(
+        name: "com.safecircle.app/voice",
+        binaryMessenger: controller.binaryMessenger
+      )
       setupMethodCallHandler()
+      setupVoiceCallHandler()
     }
 
     // If the app was launched by a significant location change while killed,
@@ -97,6 +109,53 @@ import CoreLocation
       case "isBatteryOptimizationExempt":
         // Not applicable on iOS
         result(true)
+
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  // MARK: - Voice Channel
+
+  private func setupVoiceCallHandler() {
+    // Wire native speech results → Flutter
+    silentSpeech.onResult = { [weak self] text, isFinal in
+      self?.voiceChannel?.invokeMethod("onSpeechResult", arguments: [
+        "text": text,
+        "isFinal": isFinal,
+      ])
+    }
+
+    silentSpeech.onError = { [weak self] errorMsg in
+      self?.voiceChannel?.invokeMethod("onSpeechError", arguments: [
+        "error": errorMsg,
+      ])
+    }
+
+    voiceChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+
+      switch call.method {
+      case "startVoiceDetection":
+        SilentSpeechRecognizer.requestAuthorization { granted in
+          if granted {
+            let started = self.silentSpeech.start()
+            NSLog("[SafeCircle-iOS] Voice detection started: \(started)")
+            result(started)
+          } else {
+            NSLog("[SafeCircle-iOS] Speech recognition permission denied")
+            result(false)
+          }
+        }
+
+      case "stopVoiceDetection":
+        self.silentSpeech.stop()
+        NSLog("[SafeCircle-iOS] Voice detection stopped")
+        result(true)
+
+      case "isVoiceDetectionRunning":
+        result(self.silentSpeech.isRunning)
 
       default:
         result(FlutterMethodNotImplemented)

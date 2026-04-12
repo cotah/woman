@@ -71,6 +71,9 @@
 	<!-- Microphone permission -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SafeCircle uses the microphone to detect your activation word and record audio evidence during emergencies. Audio is encrypted and never shared without your consent.</string>
+	<!-- Speech Recognition permission -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SafeCircle uses speech recognition to detect your safety activation word. All processing is done on-device and no audio is sent to external servers.</string>
 	<!-- Notifications -->
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>SafeCircle sends notifications for emergency alerts and safety status updates.</string>
