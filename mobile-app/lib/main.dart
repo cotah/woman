@@ -23,6 +23,7 @@ import 'core/services/background_service.dart';
 import 'core/services/location_tracker_service.dart';
 import 'core/services/learned_places_service.dart';
 import 'core/services/voice_detection_service.dart';
+import 'core/services/geofence_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/models/incident.dart';
 import 'core/models/location_update.dart';
@@ -91,6 +92,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   late final LocationTrackerService _locationTrackerService;
   late final LearnedPlacesService _learnedPlacesService;
   late final VoiceDetectionService _voiceDetectionService;
+  late final GeofenceService _geofenceService;
   late final ThemeNotifier _themeNotifier;
   late final GoRouter _router;
 
@@ -155,6 +157,17 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     };
     _voiceDetectionService.initialize();
 
+    _geofenceService = GeofenceService(
+      tracker: _locationTrackerService,
+      learnedPlaces: _learnedPlacesService,
+    );
+    // Wire geofence events → show notification or trigger safety check
+    _geofenceService.onGeofenceEvent = (geofence, event) {
+      debugPrint('[Main] Geofence ${event.name}: "${geofence.name}"');
+      _handleGeofenceEvent(geofence, event);
+    };
+    _geofenceService.initialize();
+
     _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
@@ -177,7 +190,59 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _locationTrackerService.dispose();
     _learnedPlacesService.dispose();
     _voiceDetectionService.dispose();
+    _geofenceService.dispose();
     super.dispose();
+  }
+
+  /// Handles geofence entry/exit events.
+  ///
+  /// - Safe zone EXIT → sends risk signal to active incident (if any)
+  ///   or logs a safety check event
+  /// - Watch zone ENTRY → creates a geofence-triggered incident
+  void _handleGeofenceEvent(Geofence geofence, GeofenceEvent event) {
+    if (event == GeofenceEvent.exited && geofence.type == GeofenceType.safe) {
+      // Exited a safe zone — log it
+      debugPrint('[Main] User left safe zone "${geofence.name}"');
+
+      // If there's an active incident, add a risk signal
+      if (_incidentService.hasActiveIncident) {
+        _incidentService.sendRiskSignal(
+          _incidentService.activeIncident!.id,
+          type: 'geofence_exit',
+          payload: {
+            'zone': geofence.name,
+            'lat': geofence.latitude,
+            'lng': geofence.longitude,
+          },
+        );
+      }
+    } else if (event == GeofenceEvent.entered &&
+        geofence.type == GeofenceType.watch) {
+      // Entered a watch/flagged zone — trigger alert
+      debugPrint('[Main] User entered watch zone "${geofence.name}" — triggering alert!');
+      _triggerGeofenceEmergency(geofence);
+    }
+  }
+
+  /// Trigger an emergency incident from a geofence event.
+  Future<void> _triggerGeofenceEmergency(Geofence geofence) async {
+    try {
+      final location = LocationUpdate(
+        latitude: geofence.latitude,
+        longitude: geofence.longitude,
+        timestamp: DateTime.now(),
+      );
+
+      final incident = await _incidentService.createIncident(
+        triggerType: TriggerType.geofence,
+        location: location,
+        countdownSeconds: 30, // Give 30s to cancel if false alarm
+      );
+
+      debugPrint('[Main] Geofence emergency created: ${incident.id}');
+    } catch (e) {
+      debugPrint('[Main] Failed to trigger geofence emergency: $e');
+    }
   }
 
   /// Triggered when the voice detection service recognizes the activation word.
@@ -234,6 +299,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         ChangeNotifierProvider.value(value: _locationTrackerService),
         ChangeNotifierProvider.value(value: _learnedPlacesService),
         ChangeNotifierProvider.value(value: _voiceDetectionService),
+        ChangeNotifierProvider.value(value: _geofenceService),
         Provider.value(value: _smsFallbackService),
         Provider.value(value: widget.apiClient),
         Provider.value(value: widget.secureStorage),

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/services/location_tracker_service.dart';
 import '../../core/services/learned_places_service.dart';
+import '../../core/services/geofence_service.dart';
 
 /// Live map screen — Life360-style real-time tracking view.
 ///
@@ -32,6 +33,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
   bool _isFollowing = true;
   bool _showTrail = true;
   bool _showPlaces = true;
+  bool _showGeofences = true;
   DateTime? _arrivedAtCurrent;
   String _timeAtLocation = '';
 
@@ -136,6 +138,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     final theme = Theme.of(context);
     final tracker = context.watch<LocationTrackerService>();
     final places = context.watch<LearnedPlacesService>();
+    final geofenceService = context.watch<GeofenceService>();
 
     final hasPosition = tracker.lastPosition != null;
 
@@ -144,7 +147,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
         children: [
           // ── The Map ──
           if (hasPosition)
-            _buildMap(theme, tracker, places)
+            _buildMap(theme, tracker, places, geofenceService)
           else
             _buildNoLocationState(theme),
 
@@ -173,6 +176,15 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                         : Icons.place_outlined,
                     onTap: () => setState(() => _showPlaces = !_showPlaces),
                     isActive: _showPlaces,
+                  ),
+                  const SizedBox(width: 8),
+                  _CircleButton(
+                    icon: _showGeofences
+                        ? Icons.radar
+                        : Icons.radar_outlined,
+                    onTap: () =>
+                        setState(() => _showGeofences = !_showGeofences),
+                    isActive: _showGeofences,
                   ),
                 ],
               ),
@@ -207,7 +219,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
   }
 
   Widget _buildMap(ThemeData theme, LocationTrackerService tracker,
-      LearnedPlacesService places) {
+      LearnedPlacesService places, GeofenceService geofenceService) {
     final userLatLng = LatLng(
       tracker.lastPosition!.latitude,
       tracker.lastPosition!.longitude,
@@ -255,6 +267,41 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                 color: theme.colorScheme.primary.withValues(alpha: 0.4),
                 borderColor: Colors.transparent,
                 borderStrokeWidth: 0,
+              );
+            }).toList(),
+          ),
+
+        // Geofence zones (semi-transparent circles)
+        if (_showGeofences && geofenceService.geofences.isNotEmpty)
+          CircleLayer(
+            circles: geofenceService.geofences
+                .where((g) => g.isActive)
+                .map((g) {
+              Color fillColor;
+              Color borderColor;
+
+              switch (g.type) {
+                case GeofenceType.safe:
+                  fillColor = Colors.green.withValues(alpha: 0.1);
+                  borderColor = Colors.green.withValues(alpha: 0.5);
+                  break;
+                case GeofenceType.watch:
+                  fillColor = Colors.red.withValues(alpha: 0.1);
+                  borderColor = Colors.red.withValues(alpha: 0.5);
+                  break;
+                case GeofenceType.custom:
+                  fillColor = Colors.blue.withValues(alpha: 0.1);
+                  borderColor = Colors.blue.withValues(alpha: 0.5);
+                  break;
+              }
+
+              return CircleMarker(
+                point: LatLng(g.latitude, g.longitude),
+                radius: g.radiusMeters,
+                useRadiusInMeter: true,
+                color: fillColor,
+                borderColor: borderColor,
+                borderStrokeWidth: 2,
               );
             }).toList(),
           ),

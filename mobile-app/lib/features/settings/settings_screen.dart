@@ -46,6 +46,12 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'Activation word, continuous listening',
             onTap: () => context.push('/settings/voice'),
           ),
+          _SettingsTile(
+            icon: Icons.radar_outlined,
+            title: 'Geofence zones',
+            subtitle: 'Safe zones, watch zones, auto-alerts',
+            onTap: () => context.push('/settings/geofence'),
+          ),
 
           const SizedBox(height: 8),
 

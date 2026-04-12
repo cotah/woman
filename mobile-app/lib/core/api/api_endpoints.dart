@@ -74,6 +74,10 @@ class ApiEndpoints {
   static String placeConfirmSafe(String id) => '/location/places/$id/safe';
   static String placeFlag(String id) => '/location/places/$id/flag';
 
+  // ── Geofence ───────────────────────────────────
+  static const String geofenceEvents = '/location/geofence/events';
+  static const String geofenceZones = '/location/geofence/zones';
+
   // ── Health / Diagnostics ───────────────────────
   static const String health = '/health';
 }

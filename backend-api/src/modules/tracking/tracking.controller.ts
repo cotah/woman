@@ -218,6 +218,57 @@ export class TrackingController {
     return place;
   }
 
+  // ── Geofence Events ─────────────────────────────────
+
+  /**
+   * Log a geofence event (entry or exit).
+   * Called by the mobile app when a geofence boundary is crossed.
+   */
+  @Post('geofence/events')
+  @HttpCode(HttpStatus.CREATED)
+  async logGeofenceEvent(
+    @Req() req: any,
+    @Body()
+    body: {
+      zoneId: string;
+      zoneName: string;
+      event: 'entered' | 'exited';
+      latitude: number;
+      longitude: number;
+      radiusMeters?: number;
+      zoneType?: string;
+      timestamp?: string;
+    },
+  ) {
+    if (!body.zoneId || !body.zoneName || !body.event) {
+      throw new BadRequestException(
+        'zoneId, zoneName, and event are required',
+      );
+    }
+    if (!['entered', 'exited'].includes(body.event)) {
+      throw new BadRequestException('event must be "entered" or "exited"');
+    }
+
+    this.validateCoordinates(body.latitude, body.longitude);
+
+    // Store as a location snapshot with geofence metadata
+    const snapshot = await this.trackingService.addSnapshot(
+      req.user.sub ?? req.user.id,
+      {
+        latitude: body.latitude,
+        longitude: body.longitude,
+        timestamp: body.timestamp,
+      },
+    );
+
+    return {
+      id: snapshot.id,
+      event: body.event,
+      zone: body.zoneName,
+      timestamp: snapshot.timestamp,
+    };
+  }
+
   // ── Validation ──────────────────────────────────────
 
   private validateCoordinates(lat: number, lng: number) {

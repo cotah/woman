@@ -26,6 +26,7 @@ import '../../features/journey/active_journey_screen.dart';
 import '../../features/diagnostics/system_readiness_screen.dart';
 import '../../features/settings/voice_settings_screen.dart';
 import '../../features/map/live_map_screen.dart';
+import '../../features/settings/geofence_settings_screen.dart';
 
 /// Builds the application router with auth-based redirects.
 ///
@@ -190,6 +191,10 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       GoRoute(
         path: '/map',
         builder: (context, state) => const LiveMapScreen(),
+      ),
+      GoRoute(
+        path: '/settings/geofence',
+        builder: (context, state) => const GeofenceSettingsScreen(),
       ),
 
       // Diagnostics (pilot testing)
