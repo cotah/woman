@@ -472,21 +472,10 @@ class _LiveMapScreenState extends State<LiveMapScreen>
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Drag handle
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.outlineVariant,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 16),
-
           // Location info row
           Row(
             children: [
@@ -768,11 +757,10 @@ class _CircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Material(
       color: isActive
-          ? theme.colorScheme.primaryContainer
-          : theme.colorScheme.surface,
+          ? const Color(0xFF6C47FF).withValues(alpha: 0.85)
+          : Colors.black.withValues(alpha: 0.5),
       shape: const CircleBorder(),
       elevation: 2,
       child: InkWell(
@@ -783,9 +771,7 @@ class _CircleButton extends StatelessWidget {
           child: Icon(
             icon,
             size: 22,
-            color: isActive
-                ? theme.colorScheme.primary
-                : theme.colorScheme.onSurface,
+            color: Colors.white,
           ),
         ),
       ),
