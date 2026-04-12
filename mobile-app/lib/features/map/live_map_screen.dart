@@ -244,25 +244,19 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                   ),
                   const Spacer(),
                   _CircleButton(
-                    icon: _showTrail
-                        ? Icons.timeline
-                        : Icons.timeline_outlined,
+                    icon: Icons.show_chart,
                     onTap: () => setState(() => _showTrail = !_showTrail),
                     isActive: _showTrail,
                   ),
                   const SizedBox(width: 8),
                   _CircleButton(
-                    icon: _showPlaces
-                        ? Icons.place
-                        : Icons.place_outlined,
+                    icon: Icons.location_on,
                     onTap: () => setState(() => _showPlaces = !_showPlaces),
                     isActive: _showPlaces,
                   ),
                   const SizedBox(width: 8),
                   _CircleButton(
-                    icon: _showGeofences
-                        ? Icons.radar
-                        : Icons.radar_outlined,
+                    icon: Icons.shield,
                     onTap: () =>
                         setState(() => _showGeofences = !_showGeofences),
                     isActive: _showGeofences,
@@ -757,20 +751,28 @@ class _CircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: isActive
-          ? const Color(0xFF6C47FF).withValues(alpha: 0.85)
-          : Colors.black.withValues(alpha: 0.5),
-      shape: const CircleBorder(),
-      elevation: 2,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isActive
+              ? const Color(0xFF6C47FF)
+              : const Color(0xCC000000),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
           child: Icon(
             icon,
-            size: 22,
+            size: 20,
             color: Colors.white,
           ),
         ),
