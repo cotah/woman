@@ -244,7 +244,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                   ),
                   const Spacer(),
                   _CircleButton(
-                    icon: Icons.visibility,
+                    icon: Icons.history,
                     onTap: () => setState(() => _showTrail = !_showTrail),
                     isActive: _showTrail,
                   ),
@@ -550,23 +550,22 @@ class _LiveMapScreenState extends State<LiveMapScreen>
 
           // Stats row
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _StatChip(
-                icon: Icons.place,
+                icon: Icons.location_on,
                 label: '${places.places.length} places',
                 theme: theme,
               ),
               const SizedBox(width: 8),
               _StatChip(
-                icon: Icons.timeline,
+                icon: Icons.history,
                 label: '${_trail.length} points (24h)',
                 theme: theme,
               ),
               const SizedBox(width: 8),
               _StatChip(
-                icon: tracker.isTracking
-                    ? Icons.sensors
-                    : Icons.sensors_off,
+                icon: Icons.circle,
                 label: tracker.isTracking ? 'Live' : 'Off',
                 theme: theme,
                 color: tracker.isTracking ? Colors.green : Colors.grey,
@@ -587,7 +586,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.explore, color: Colors.orange, size: 20),
+                  const Icon(Icons.warning_amber, color: Colors.orange, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
