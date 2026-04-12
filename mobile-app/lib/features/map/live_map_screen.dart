@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/services/location_tracker_service.dart';
 import '../../core/services/learned_places_service.dart';
 import '../../core/services/geofence_service.dart';
+import '../../core/services/contacts_service.dart';
 
 /// Live map screen — Life360-style real-time tracking view.
 ///
@@ -37,6 +40,11 @@ class _LiveMapScreenState extends State<LiveMapScreen>
   DateTime? _arrivedAtCurrent;
   String _timeAtLocation = '';
 
+  // Direct position (fetched on map open, independent of tracker)
+  Position? _directPosition;
+  bool _isLoadingLocation = true;
+  String? _locationError;
+
   // Trail data
   List<LocationSnapshot> _trail = [];
 
@@ -52,7 +60,10 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     // Refresh trail and position every 30s
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => _refreshTrail(),
+      (_) {
+        _refreshTrail();
+        _requestLocation();
+      },
     );
 
     // Update "time at location" counter every second
@@ -61,11 +72,74 @@ class _LiveMapScreenState extends State<LiveMapScreen>
       (_) => _updateTimeAtLocation(),
     );
 
-    // Load initial trail
+    // Request location immediately when map opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestLocation();
       _refreshTrail();
       _detectArrivalTime();
     });
+  }
+
+  /// Request location directly from GPS — independent of tracker service.
+  Future<void> _requestLocation() async {
+    try {
+      // Check & request permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() {
+            _isLoadingLocation = false;
+            _locationError = 'Location permission denied. '
+                'Please enable it in your device settings.';
+          });
+        }
+        return;
+      }
+
+      // Check if location services are enabled
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          setState(() {
+            _isLoadingLocation = false;
+            _locationError = 'Location services are disabled. '
+                'Please enable GPS on your device.';
+          });
+        }
+        return;
+      }
+
+      // Get current position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+
+      if (mounted) {
+        setState(() {
+          _directPosition = position;
+          _isLoadingLocation = false;
+          _locationError = null;
+        });
+      }
+
+      debugPrint('[LiveMap] Got position: '
+          '${position.latitude}, ${position.longitude}');
+    } catch (e) {
+      debugPrint('[LiveMap] Location error: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+          _locationError = 'Could not get your location. '
+              'Check GPS and try again.';
+        });
+      }
+    }
   }
 
   @override
@@ -121,12 +195,17 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     if (mounted) setState(() => _timeAtLocation = formatted);
   }
 
-  void _centerOnUser() {
+  /// Get the best available position (tracker or direct).
+  Position? _getBestPosition() {
     final tracker = context.read<LocationTrackerService>();
-    if (tracker.lastPosition != null) {
+    return tracker.lastPosition ?? _directPosition;
+  }
+
+  void _centerOnUser() {
+    final pos = _getBestPosition();
+    if (pos != null) {
       _mapController.move(
-        LatLng(tracker.lastPosition!.latitude,
-            tracker.lastPosition!.longitude),
+        LatLng(pos.latitude, pos.longitude),
         16.0,
       );
       setState(() => _isFollowing = true);
@@ -140,7 +219,9 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     final places = context.watch<LearnedPlacesService>();
     final geofenceService = context.watch<GeofenceService>();
 
-    final hasPosition = tracker.lastPosition != null;
+    // Use tracker position first, fall back to directly-fetched position
+    final hasPosition =
+        tracker.lastPosition != null || _directPosition != null;
 
     return Scaffold(
       body: Stack(
@@ -220,10 +301,8 @@ class _LiveMapScreenState extends State<LiveMapScreen>
 
   Widget _buildMap(ThemeData theme, LocationTrackerService tracker,
       LearnedPlacesService places, GeofenceService geofenceService) {
-    final userLatLng = LatLng(
-      tracker.lastPosition!.latitude,
-      tracker.lastPosition!.longitude,
-    );
+    final pos = tracker.lastPosition ?? _directPosition!;
+    final userLatLng = LatLng(pos.latitude, pos.longitude);
 
     return FlutterMap(
       mapController: _mapController,
@@ -237,11 +316,25 @@ class _LiveMapScreenState extends State<LiveMapScreen>
         },
       ),
       children: [
-        // Map tiles (OpenStreetMap)
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.safecircle.app',
-        ),
+        // Map tiles — Mapbox dark style (Waze-like) with OSM fallback
+        Builder(builder: (context) {
+          final token = AppConfig.instance.mapboxToken;
+          final useMapbox = token.isNotEmpty && !token.startsWith('YOUR_');
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+
+          // Mapbox styles: dark-v11 for dark theme, navigation-night-v1 for Waze-like
+          final mapboxStyle = isDark ? 'navigation-night-v1' : 'navigation-day-v1';
+
+          return TileLayer(
+            urlTemplate: useMapbox
+                ? 'https://api.mapbox.com/styles/v1/mapbox/$mapboxStyle/tiles/{z}/{x}/{y}@2x?access_token=$token'
+                : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.safecircle.app',
+            maxZoom: 19,
+            tileSize: useMapbox ? 512 : 256,
+            zoomOffset: useMapbox ? -1 : 0,
+          );
+        }),
 
         // Movement trail (polyline)
         if (_showTrail && _trail.length >= 2)
@@ -319,19 +412,19 @@ class _LiveMapScreenState extends State<LiveMapScreen>
             }).toList(),
           ),
 
-        // User pulse ring (animated)
+        // User pulse ring (animated) — Waze-style glow
         AnimatedBuilder(
           animation: _pulseController,
           builder: (context, _) {
-            final scale = 1.0 + (_pulseController.value * 0.5);
+            final scale = 1.0 + (_pulseController.value * 0.6);
             final opacity = 1.0 - _pulseController.value;
             return CircleLayer(
               circles: [
                 CircleMarker(
                   point: userLatLng,
-                  radius: 20 * scale,
-                  color: theme.colorScheme.primary
-                      .withValues(alpha: 0.3 * opacity),
+                  radius: 24 * scale,
+                  color: const Color(0xFF6C47FF)
+                      .withValues(alpha: 0.25 * opacity),
                   borderColor: Colors.transparent,
                   borderStrokeWidth: 0,
                 ),
@@ -340,17 +433,23 @@ class _LiveMapScreenState extends State<LiveMapScreen>
           },
         ),
 
-        // User location dot (solid)
-        CircleLayer(
-          circles: [
-            CircleMarker(
+        // User avatar marker — Waze-style
+        MarkerLayer(
+          markers: [
+            Marker(
               point: userLatLng,
-              radius: 8,
-              color: theme.colorScheme.primary,
-              borderColor: Colors.white,
-              borderStrokeWidth: 3,
+              width: 48,
+              height: 48,
+              child: const _UserAvatarMarker(),
             ),
           ],
+        ),
+
+        // Nearby contacts layer (shows trusted contacts who share location)
+        // This will be populated when contacts share their location
+        // For now it shows an empty layer — ready for Phase 2
+        MarkerLayer(
+          markers: _buildContactMarkers(),
         ),
       ],
     );
@@ -523,10 +622,11 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                     onTap: () {
                       final placesService =
                           context.read<LearnedPlacesService>();
-                      if (tracker.lastPosition != null) {
+                      final pos = tracker.lastPosition ?? _directPosition;
+                      if (pos != null) {
                         placesService.confirmPlaceSafe(
-                          latitude: tracker.lastPosition!.latitude,
-                          longitude: tracker.lastPosition!.longitude,
+                          latitude: pos.latitude,
+                          longitude: pos.longitude,
                         );
                       }
                     },
@@ -542,26 +642,63 @@ class _LiveMapScreenState extends State<LiveMapScreen>
 
   Widget _buildNoLocationState(ThemeData theme) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.location_off,
-              size: 64, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(height: 16),
-          Text(
-            'Waiting for location...',
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Make sure location services are enabled',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isLoadingLocation) ...[
+              const CircularProgressIndicator(),
+              const SizedBox(height: 24),
+              Text(
+                'Getting your location...',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Please allow location access when prompted',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ] else ...[
+              Icon(Icons.location_off,
+                  size: 64, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(height: 16),
+              Text(
+                'Location unavailable',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (_locationError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _locationError!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isLoadingLocation = true;
+                    _locationError = null;
+                  });
+                  _requestLocation();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try again'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -597,11 +734,20 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     if (place != null) {
       return 'Visited ${place.visitCount} times';
     }
-    if (tracker.lastPosition != null) {
-      return '${tracker.lastPosition!.latitude.toStringAsFixed(4)}, '
-          '${tracker.lastPosition!.longitude.toStringAsFixed(4)}';
+    final pos = tracker.lastPosition ?? _directPosition;
+    if (pos != null) {
+      return '${pos.latitude.toStringAsFixed(4)}, '
+          '${pos.longitude.toStringAsFixed(4)}';
     }
     return 'Location unavailable';
+  }
+
+  /// Build markers for trusted contacts who share their location.
+  /// Returns empty list for now — ready for Phase 2 contact sharing.
+  List<Marker> _buildContactMarkers() {
+    // Phase 2: fetch shared locations from ContactsService and
+    // return a Marker for each contact with a _ContactAvatarMarker child.
+    return [];
   }
 }
 
@@ -736,6 +882,93 @@ class _StatChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Waze-style user avatar marker — circular avatar with directional pointer.
+class _UserAvatarMarker extends StatelessWidget {
+  const _UserAvatarMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const avatarColor = Color(0xFF6C47FF); // SafeCircle purple
+
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Directional pointer (triangle at the bottom)
+          Positioned(
+            bottom: 0,
+            child: CustomPaint(
+              size: const Size(16, 8),
+              painter: _PointerPainter(color: avatarColor),
+            ),
+          ),
+          // White border ring
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: theme.colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+          // Colored inner circle with person icon
+          Container(
+            width: 34,
+            height: 34,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF8B6DFF), avatarColor],
+              ),
+            ),
+            child: const Icon(
+              Icons.person,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Paints a small downward-pointing triangle (direction pointer).
+class _PointerPainter extends CustomPainter {
+  final Color color;
+  _PointerPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _MiniButton extends StatelessWidget {
