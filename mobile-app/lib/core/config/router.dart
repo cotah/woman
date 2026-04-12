@@ -24,6 +24,7 @@ import '../../features/help/disclaimer_screen.dart';
 import '../../features/journey/journey_screen.dart';
 import '../../features/journey/active_journey_screen.dart';
 import '../../features/diagnostics/system_readiness_screen.dart';
+import '../../features/settings/voice_settings_screen.dart';
 
 /// Builds the application router with auth-based redirects.
 ///
@@ -144,6 +145,10 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       GoRoute(
         path: '/settings/privacy',
         builder: (context, state) => const PrivacyScreen(),
+      ),
+      GoRoute(
+        path: '/settings/voice',
+        builder: (context, state) => const VoiceSettingsScreen(),
       ),
 
       // Emergency

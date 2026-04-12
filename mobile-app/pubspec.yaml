@@ -34,8 +34,9 @@ dependencies:
   flutter_map: ^6.1.0
   latlong2: ^0.9.1
 
-  # Audio recording
+  # Audio recording & speech recognition
   record: ^5.1.2
+  speech_to_text: ^7.0.0
 
   # Authentication & Security
   local_auth: ^2.2.0

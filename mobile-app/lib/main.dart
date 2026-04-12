@@ -22,7 +22,10 @@ import 'core/services/sms_fallback_service.dart';
 import 'core/services/background_service.dart';
 import 'core/services/location_tracker_service.dart';
 import 'core/services/learned_places_service.dart';
+import 'core/services/voice_detection_service.dart';
 import 'core/storage/secure_storage.dart';
+import 'core/models/incident.dart';
+import 'core/models/location_update.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_notifier.dart';
 import 'core/utils/coercion_handler.dart';
@@ -87,6 +90,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   late final BackgroundService _backgroundService;
   late final LocationTrackerService _locationTrackerService;
   late final LearnedPlacesService _learnedPlacesService;
+  late final VoiceDetectionService _voiceDetectionService;
   late final ThemeNotifier _themeNotifier;
   late final GoRouter _router;
 
@@ -140,6 +144,17 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
       tracker: _locationTrackerService,
     );
     _learnedPlacesService.initialize();
+
+    _voiceDetectionService = VoiceDetectionService(
+      secureStorage: widget.secureStorage,
+    );
+    // Wire voice activation → auto-trigger emergency SOS
+    _voiceDetectionService.onActivationDetected = () {
+      debugPrint('[Main] Voice activation detected! Triggering SOS...');
+      _triggerVoiceEmergency();
+    };
+    _voiceDetectionService.initialize();
+
     _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
@@ -161,7 +176,44 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _backgroundService.dispose();
     _locationTrackerService.dispose();
     _learnedPlacesService.dispose();
+    _voiceDetectionService.dispose();
     super.dispose();
+  }
+
+  /// Triggered when the voice detection service recognizes the activation word.
+  /// Creates and immediately activates an emergency incident.
+  Future<void> _triggerVoiceEmergency() async {
+    try {
+      // Get current location for the incident
+      LocationUpdate? location;
+      if (_locationTrackerService.lastPosition != null) {
+        final pos = _locationTrackerService.lastPosition!;
+        location = LocationUpdate(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          accuracy: pos.accuracy,
+          timestamp: DateTime.now(),
+        );
+      }
+
+      // Create incident with voice trigger — no countdown, immediate activation
+      final incident = await _incidentService.createIncident(
+        triggerType: TriggerType.voice,
+        countdownSeconds: 0,
+        location: location,
+      );
+
+      debugPrint('[Main] Voice emergency incident created: ${incident.id}');
+
+      // Immediately activate (no countdown for voice-triggered emergencies)
+      if (incident.status == IncidentStatus.countdown ||
+          incident.status == IncidentStatus.pending) {
+        await _incidentService.activateIncident(incident.id);
+        debugPrint('[Main] Voice emergency activated!');
+      }
+    } catch (e) {
+      debugPrint('[Main] Failed to trigger voice emergency: $e');
+    }
   }
 
   @override
@@ -181,6 +233,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         ChangeNotifierProvider.value(value: _backgroundService),
         ChangeNotifierProvider.value(value: _locationTrackerService),
         ChangeNotifierProvider.value(value: _learnedPlacesService),
+        ChangeNotifierProvider.value(value: _voiceDetectionService),
         Provider.value(value: _smsFallbackService),
         Provider.value(value: widget.apiClient),
         Provider.value(value: widget.secureStorage),

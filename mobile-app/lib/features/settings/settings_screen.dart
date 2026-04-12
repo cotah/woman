@@ -40,6 +40,12 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'Consent, AI analysis, sharing',
             onTap: () => context.push('/settings/audio'),
           ),
+          _SettingsTile(
+            icon: Icons.record_voice_over_outlined,
+            title: 'Voice detection',
+            subtitle: 'Activation word, continuous listening',
+            onTap: () => context.push('/settings/voice'),
+          ),
 
           const SizedBox(height: 8),
 
