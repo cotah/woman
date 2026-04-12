@@ -243,7 +243,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _QuickAction(
-                          icon: Icons.my_location,
+                          icon: Icons.place,
                           label: 'Map',
                           onTap: () => context.push('/map'),
                         ),
