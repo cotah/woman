@@ -244,7 +244,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                   ),
                   const Spacer(),
                   _CircleButton(
-                    icon: Icons.show_chart,
+                    icon: Icons.route,
                     onTap: () => setState(() => _showTrail = !_showTrail),
                     isActive: _showTrail,
                   ),
