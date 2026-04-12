@@ -25,6 +25,7 @@ import '../../features/journey/journey_screen.dart';
 import '../../features/journey/active_journey_screen.dart';
 import '../../features/diagnostics/system_readiness_screen.dart';
 import '../../features/settings/voice_settings_screen.dart';
+import '../../features/map/live_map_screen.dart';
 
 /// Builds the application router with auth-based redirects.
 ///
@@ -183,6 +184,12 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       GoRoute(
         path: '/journey/active',
         builder: (context, state) => const ActiveJourneyScreen(),
+      ),
+
+      // Live Map
+      GoRoute(
+        path: '/map',
+        builder: (context, state) => const LiveMapScreen(),
       ),
 
       // Diagnostics (pilot testing)

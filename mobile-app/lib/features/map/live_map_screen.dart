@@ -1,0 +1,727 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/services/location_tracker_service.dart';
+import '../../core/services/learned_places_service.dart';
+
+/// Live map screen — Life360-style real-time tracking view.
+///
+/// Shows:
+/// - User's current location with animated pulse
+/// - Learned places (home, work, etc.) with labeled markers
+/// - Movement trail for the last 24 hours
+/// - Current place info: name, time spent here
+/// - Bottom sheet with place details
+class LiveMapScreen extends StatefulWidget {
+  const LiveMapScreen({super.key});
+
+  @override
+  State<LiveMapScreen> createState() => _LiveMapScreenState();
+}
+
+class _LiveMapScreenState extends State<LiveMapScreen>
+    with TickerProviderStateMixin {
+  final MapController _mapController = MapController();
+  late AnimationController _pulseController;
+  Timer? _refreshTimer;
+  Timer? _timeAtLocationTimer;
+
+  bool _isFollowing = true;
+  bool _showTrail = true;
+  bool _showPlaces = true;
+  DateTime? _arrivedAtCurrent;
+  String _timeAtLocation = '';
+
+  // Trail data
+  List<LocationSnapshot> _trail = [];
+
+  @override
+  void initState() {
+    super.initState();
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+
+    // Refresh trail and position every 30s
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshTrail(),
+    );
+
+    // Update "time at location" counter every second
+    _timeAtLocationTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateTimeAtLocation(),
+    );
+
+    // Load initial trail
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshTrail();
+      _detectArrivalTime();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _refreshTimer?.cancel();
+    _timeAtLocationTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshTrail() async {
+    final tracker = context.read<LocationTrackerService>();
+    final history = await tracker.getRecentHistory(hours: 24);
+    if (mounted) {
+      setState(() => _trail = history);
+    }
+  }
+
+  void _detectArrivalTime() {
+    final places = context.read<LearnedPlacesService>();
+    if (places.currentPlace != null) {
+      // Use last visited as arrival approximation
+      _arrivedAtCurrent = places.currentPlace!.lastVisited;
+    } else {
+      // If at a new place, use the timestamp of last snapshot
+      final tracker = context.read<LocationTrackerService>();
+      if (tracker.lastPosition != null) {
+        _arrivedAtCurrent = DateTime.now();
+      }
+    }
+    _updateTimeAtLocation();
+  }
+
+  void _updateTimeAtLocation() {
+    if (_arrivedAtCurrent == null) {
+      if (mounted) setState(() => _timeAtLocation = '');
+      return;
+    }
+
+    final diff = DateTime.now().difference(_arrivedAtCurrent!);
+    String formatted;
+
+    if (diff.inDays > 0) {
+      formatted = '${diff.inDays}d ${diff.inHours.remainder(24)}h';
+    } else if (diff.inHours > 0) {
+      formatted = '${diff.inHours}h ${diff.inMinutes.remainder(60)}min';
+    } else if (diff.inMinutes > 0) {
+      formatted = '${diff.inMinutes}min';
+    } else {
+      formatted = 'Just arrived';
+    }
+
+    if (mounted) setState(() => _timeAtLocation = formatted);
+  }
+
+  void _centerOnUser() {
+    final tracker = context.read<LocationTrackerService>();
+    if (tracker.lastPosition != null) {
+      _mapController.move(
+        LatLng(tracker.lastPosition!.latitude,
+            tracker.lastPosition!.longitude),
+        16.0,
+      );
+      setState(() => _isFollowing = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tracker = context.watch<LocationTrackerService>();
+    final places = context.watch<LearnedPlacesService>();
+
+    final hasPosition = tracker.lastPosition != null;
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          // ── The Map ──
+          if (hasPosition)
+            _buildMap(theme, tracker, places)
+          else
+            _buildNoLocationState(theme),
+
+          // ── Top Bar (overlay) ──
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  _CircleButton(
+                    icon: Icons.arrow_back,
+                    onTap: () => Navigator.pop(context),
+                  ),
+                  const Spacer(),
+                  _CircleButton(
+                    icon: _showTrail
+                        ? Icons.timeline
+                        : Icons.timeline_outlined,
+                    onTap: () => setState(() => _showTrail = !_showTrail),
+                    isActive: _showTrail,
+                  ),
+                  const SizedBox(width: 8),
+                  _CircleButton(
+                    icon: _showPlaces
+                        ? Icons.place
+                        : Icons.place_outlined,
+                    onTap: () => setState(() => _showPlaces = !_showPlaces),
+                    isActive: _showPlaces,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Re-center button ──
+          if (hasPosition && !_isFollowing)
+            Positioned(
+              right: 16,
+              bottom: 220,
+              child: FloatingActionButton.small(
+                heroTag: 'recenter',
+                onPressed: _centerOnUser,
+                backgroundColor: theme.colorScheme.surface,
+                child: Icon(Icons.my_location,
+                    color: theme.colorScheme.primary),
+              ),
+            ),
+
+          // ── Bottom Info Sheet ──
+          if (hasPosition)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _buildBottomSheet(theme, tracker, places),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMap(ThemeData theme, LocationTrackerService tracker,
+      LearnedPlacesService places) {
+    final userLatLng = LatLng(
+      tracker.lastPosition!.latitude,
+      tracker.lastPosition!.longitude,
+    );
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: userLatLng,
+        initialZoom: 16.0,
+        onPositionChanged: (pos, hasGesture) {
+          if (hasGesture) {
+            setState(() => _isFollowing = false);
+          }
+        },
+      ),
+      children: [
+        // Map tiles (OpenStreetMap)
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.safecircle.app',
+        ),
+
+        // Movement trail (polyline)
+        if (_showTrail && _trail.length >= 2)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: _trail
+                    .map((s) => LatLng(s.latitude, s.longitude))
+                    .toList(),
+                strokeWidth: 3.0,
+                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+              ),
+            ],
+          ),
+
+        // Trail dots (each snapshot point)
+        if (_showTrail && _trail.isNotEmpty)
+          CircleLayer(
+            circles: _trail.map((s) {
+              return CircleMarker(
+                point: LatLng(s.latitude, s.longitude),
+                radius: 3,
+                color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                borderColor: Colors.transparent,
+                borderStrokeWidth: 0,
+              );
+            }).toList(),
+          ),
+
+        // Learned places markers
+        if (_showPlaces && places.places.isNotEmpty)
+          MarkerLayer(
+            markers: places.places.map((place) {
+              return Marker(
+                point: LatLng(place.latitude, place.longitude),
+                width: 120,
+                height: 60,
+                child: _PlaceMarker(place: place),
+              );
+            }).toList(),
+          ),
+
+        // User pulse ring (animated)
+        AnimatedBuilder(
+          animation: _pulseController,
+          builder: (context, _) {
+            final scale = 1.0 + (_pulseController.value * 0.5);
+            final opacity = 1.0 - _pulseController.value;
+            return CircleLayer(
+              circles: [
+                CircleMarker(
+                  point: userLatLng,
+                  radius: 20 * scale,
+                  color: theme.colorScheme.primary
+                      .withValues(alpha: 0.3 * opacity),
+                  borderColor: Colors.transparent,
+                  borderStrokeWidth: 0,
+                ),
+              ],
+            );
+          },
+        ),
+
+        // User location dot (solid)
+        CircleLayer(
+          circles: [
+            CircleMarker(
+              point: userLatLng,
+              radius: 8,
+              color: theme.colorScheme.primary,
+              borderColor: Colors.white,
+              borderStrokeWidth: 3,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomSheet(ThemeData theme, LocationTrackerService tracker,
+      LearnedPlacesService places) {
+    final currentPlace = places.currentPlace;
+    final isNewPlace = places.isAtNewPlace;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 20,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag handle
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.outlineVariant,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Location info row
+          Row(
+            children: [
+              // Place icon
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isNewPlace
+                      ? Colors.orange.withValues(alpha: 0.15)
+                      : currentPlace != null
+                          ? theme.colorScheme.primaryContainer
+                          : theme.colorScheme.surfaceContainerHighest,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _getPlaceIcon(currentPlace),
+                  color: isNewPlace
+                      ? Colors.orange
+                      : currentPlace != null
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurfaceVariant,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+
+              // Place name and details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getPlaceName(currentPlace, isNewPlace),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _getPlaceSubtitle(currentPlace, isNewPlace, tracker),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Time at location badge
+              if (_timeAtLocation.isNotEmpty)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.access_time,
+                          size: 14, color: theme.colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        _timeAtLocation,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Stats row
+          Row(
+            children: [
+              _StatChip(
+                icon: Icons.place,
+                label: '${places.places.length} places',
+                theme: theme,
+              ),
+              const SizedBox(width: 8),
+              _StatChip(
+                icon: Icons.timeline,
+                label: '${_trail.length} points (24h)',
+                theme: theme,
+              ),
+              const SizedBox(width: 8),
+              _StatChip(
+                icon: tracker.isTracking
+                    ? Icons.sensors
+                    : Icons.sensors_off,
+                label: tracker.isTracking ? 'Live' : 'Off',
+                theme: theme,
+                color: tracker.isTracking ? Colors.green : Colors.grey,
+              ),
+            ],
+          ),
+
+          // New place alert
+          if (isNewPlace) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.explore, color: Colors.orange, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'You\'re at a new place. Is everything OK?',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.orange.shade800,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _MiniButton(
+                    label: 'I\'m safe',
+                    color: Colors.green,
+                    onTap: () {
+                      final placesService =
+                          context.read<LearnedPlacesService>();
+                      if (tracker.lastPosition != null) {
+                        placesService.confirmPlaceSafe(
+                          latitude: tracker.lastPosition!.latitude,
+                          longitude: tracker.lastPosition!.longitude,
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoLocationState(ThemeData theme) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.location_off,
+              size: 64, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(height: 16),
+          Text(
+            'Waiting for location...',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Make sure location services are enabled',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getPlaceIcon(LearnedPlace? place) {
+    if (place == null) return Icons.location_on;
+    final label = (place.label ?? place.autoLabel ?? '').toLowerCase();
+    if (label.contains('home')) return Icons.home;
+    if (label.contains('work')) return Icons.work;
+    if (label.contains('gym')) return Icons.fitness_center;
+    if (label.contains('school') || label.contains('uni')) {
+      return Icons.school;
+    }
+    if (label.contains('shop') || label.contains('store') ||
+        label.contains('mall')) return Icons.shopping_bag;
+    if (label.contains('restaurant') || label.contains('food')) {
+      return Icons.restaurant;
+    }
+    return Icons.place;
+  }
+
+  String _getPlaceName(LearnedPlace? place, bool isNew) {
+    if (isNew) return 'New place';
+    if (place != null) {
+      return place.label ?? place.autoLabel ?? 'Known place';
+    }
+    return 'Current location';
+  }
+
+  String _getPlaceSubtitle(
+      LearnedPlace? place, bool isNew, LocationTrackerService tracker) {
+    if (isNew) return 'Not in your safe zones yet';
+    if (place != null) {
+      return 'Visited ${place.visitCount} times';
+    }
+    if (tracker.lastPosition != null) {
+      return '${tracker.lastPosition!.latitude.toStringAsFixed(4)}, '
+          '${tracker.lastPosition!.longitude.toStringAsFixed(4)}';
+    }
+    return 'Location unavailable';
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Helper Widgets
+// ─────────────────────────────────────────────────────────
+
+class _CircleButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool isActive;
+
+  const _CircleButton({
+    required this.icon,
+    required this.onTap,
+    this.isActive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: isActive
+          ? theme.colorScheme.primaryContainer
+          : theme.colorScheme.surface,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Icon(
+            icon,
+            size: 22,
+            color: isActive
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaceMarker extends StatelessWidget {
+  final LearnedPlace place;
+
+  const _PlaceMarker({required this.place});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final label = place.label ?? place.autoLabel ?? 'Place';
+    final isHome = label.toLowerCase().contains('home');
+    final isWork = label.toLowerCase().contains('work');
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 6,
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        Icon(
+          isHome
+              ? Icons.home
+              : isWork
+                  ? Icons.work
+                  : Icons.place,
+          color: place.isConfirmedSafe
+              ? Colors.green
+              : theme.colorScheme.primary,
+          size: 28,
+        ),
+      ],
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final ThemeData theme;
+  final Color? color;
+
+  const _StatChip({
+    required this.icon,
+    required this.label,
+    required this.theme,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon,
+              size: 14,
+              color: color ?? theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color ?? theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _MiniButton({
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

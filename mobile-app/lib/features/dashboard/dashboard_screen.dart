@@ -243,9 +243,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _QuickAction(
-                          icon: Icons.settings_outlined,
-                          label: 'Settings',
-                          onTap: () => context.push('/settings'),
+                          icon: Icons.map_outlined,
+                          label: 'Map',
+                          onTap: () => context.push('/map'),
                         ),
                       ),
                     ],
