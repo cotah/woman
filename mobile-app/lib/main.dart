@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import 'package:geolocator/geolocator.dart';
 import 'core/config/app_config.dart';
 import 'core/config/env.dart';
 import 'core/config/router.dart';
@@ -142,6 +143,12 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     );
     _locationTrackerService.initialize();
 
+    // Auto-start background service and tracking.
+    // This ensures 24/7 protection is active from the moment the user opens the app.
+    // On iOS: starts CLLocationManager with background updates + significant change monitoring.
+    // On Android: starts ForegroundService with wake lock + boot receiver.
+    _initializeAlwaysOnTracking();
+
     _learnedPlacesService = LearnedPlacesService(
       tracker: _locationTrackerService,
     );
@@ -192,6 +199,44 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _voiceDetectionService.dispose();
     _geofenceService.dispose();
     super.dispose();
+  }
+
+  /// Initialize always-on tracking on both platforms.
+  ///
+  /// This starts the native background service (Android foreground service /
+  /// iOS background location) and then starts the Dart-side tracker.
+  /// Once activated, the app tracks 24/7 — even when minimized or killed.
+  Future<void> _initializeAlwaysOnTracking() async {
+    try {
+      // Request location permission if not yet granted
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        debugPrint('[Main] Location permission denied — tracking not started');
+        return;
+      }
+
+      // Start native background service (keeps app alive when minimized)
+      await _backgroundService.startAlwaysOnMode();
+
+      // Start Dart-side tracker (captures + syncs to backend)
+      if (!_locationTrackerService.isTracking) {
+        await _locationTrackerService.startTracking();
+      }
+
+      // Start geofence monitoring
+      if (!_geofenceService.isMonitoring) {
+        await _geofenceService.startMonitoring();
+      }
+
+      debugPrint('[Main] Always-on tracking initialized successfully');
+    } catch (e) {
+      debugPrint('[Main] Failed to initialize always-on tracking: $e');
+    }
   }
 
   /// Handles geofence entry/exit events.

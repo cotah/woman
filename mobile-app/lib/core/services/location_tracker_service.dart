@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
@@ -8,10 +9,15 @@ import '../api/api_client.dart';
 /// Always-on 24/7 location tracker.
 ///
 /// This service runs independently from incident/journey tracking.
-/// It periodically captures the user's location and:
-/// - Stores a local history for AI pattern learning
-/// - Detects when the user is at a new/unknown place
-/// - Syncs location snapshots to the backend periodically
+/// It captures the user's location via two strategies:
+///
+/// 1. **Native push (iOS/Android):** The native side (AppDelegate.swift /
+///    SafeCircleForegroundService.kt) captures location in background and
+///    pushes updates via MethodChannel "onLocationUpdate". This works even
+///    when the Flutter UI is suspended.
+///
+/// 2. **Dart timer fallback:** When the app is in foreground, a periodic
+///    timer captures location every 5 minutes as a safety net.
 ///
 /// All data is encrypted locally and in transit.
 /// No location is shared with anyone without the user's explicit action.
@@ -22,7 +28,10 @@ class LocationTrackerService extends ChangeNotifier {
   bool _isTracking = false;
   Position? _lastPosition;
 
-  /// How often we capture a location snapshot (in minutes).
+  /// MethodChannel to receive native location updates.
+  static const _channel = MethodChannel('com.safecircle.app/background');
+
+  /// How often the Dart-side timer captures a snapshot (fallback).
   static const int _intervalMinutes = 5;
 
   /// Maximum local history entries before pruning old ones.
@@ -38,8 +47,12 @@ class LocationTrackerService extends ChangeNotifier {
   LocationTrackerService({required ApiClient apiClient})
       : _apiClient = apiClient;
 
-  /// Initialize — check if tracking was previously enabled and restart.
+  /// Initialize — listen for native location updates and restart tracking
+  /// if it was previously enabled.
   Future<void> initialize() async {
+    // Listen for native location updates pushed from iOS/Android
+    _channel.setMethodCallHandler(_handleNativeCall);
+
     final prefs = await SharedPreferences.getInstance();
     final enabled = prefs.getBool(_trackingEnabledKey) ?? false;
     if (enabled) {
@@ -47,7 +60,60 @@ class LocationTrackerService extends ChangeNotifier {
     }
   }
 
+  /// Handle calls FROM native side (iOS CLLocationManager / Android service).
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    switch (call.method) {
+      case 'onLocationUpdate':
+        final args = call.arguments as Map<dynamic, dynamic>;
+        final lat = (args['latitude'] as num).toDouble();
+        final lng = (args['longitude'] as num).toDouble();
+        final accuracy = (args['accuracy'] as num?)?.toDouble() ?? 0;
+        final timestamp = args['timestamp'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(
+                (args['timestamp'] as num).toInt())
+            : DateTime.now();
+
+        debugPrint('[LocationTracker] Native update: $lat, $lng '
+            '(accuracy: ${accuracy.toStringAsFixed(1)}m)');
+
+        // Create a Position-like object for lastPosition
+        _lastPosition = Position(
+          latitude: lat,
+          longitude: lng,
+          accuracy: accuracy,
+          altitude: (args['altitude'] as num?)?.toDouble() ?? 0,
+          speed: (args['speed'] as num?)?.toDouble() ?? 0,
+          heading: (args['heading'] as num?)?.toDouble() ?? 0,
+          timestamp: timestamp,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0,
+          speedAccuracy: 0,
+        );
+
+        final snapshot = LocationSnapshot(
+          latitude: lat,
+          longitude: lng,
+          accuracy: accuracy,
+          timestamp: timestamp,
+        );
+
+        // Save locally and sync to backend
+        await _saveSnapshot(snapshot);
+        _syncToBackend(snapshot);
+        notifyListeners();
+        break;
+
+      case 'onPermissionChanged':
+        debugPrint('[LocationTracker] Permission changed: ${call.arguments}');
+        notifyListeners();
+        break;
+    }
+  }
+
   /// Start 24/7 location tracking.
+  ///
+  /// This starts the Dart-side timer as a fallback. The native side
+  /// (started via BackgroundService) handles true background tracking.
   Future<void> startTracking() async {
     if (_isTracking) return;
 
@@ -69,14 +135,15 @@ class LocationTrackerService extends ChangeNotifier {
     // Capture initial position
     await _captureSnapshot();
 
-    // Set up periodic capture
+    // Set up periodic capture as fallback (native side handles background)
+    _trackingTimer?.cancel();
     _trackingTimer = Timer.periodic(
       const Duration(minutes: _intervalMinutes),
       (_) => _captureSnapshot(),
     );
 
     debugPrint('[LocationTracker] 24/7 tracking started '
-        '(interval: ${_intervalMinutes}min)');
+        '(interval: ${_intervalMinutes}min, native handler: active)');
     notifyListeners();
   }
 
