@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 /// Onboarding step where the user:
@@ -97,15 +98,21 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
         return;
       }
 
+      // Save to permanent app directory (not /tmp/ which gets cleaned)
+      String recordPath = '';
+      if (!kIsWeb) {
+        final appDir = await getApplicationDocumentsDirectory();
+        recordPath =
+            '${appDir.path}/activation_voice_${_recordingPaths.length + 1}.m4a';
+      }
+
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
           sampleRate: 44100,
           bitRate: 128000,
         ),
-        path: kIsWeb
-            ? ''
-            : '/tmp/activation_voice_${_recordingPaths.length + 1}.m4a',
+        path: recordPath,
       );
 
       setState(() {

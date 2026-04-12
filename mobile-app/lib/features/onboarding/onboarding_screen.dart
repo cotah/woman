@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:intl_phone_field/phone_number.dart';
@@ -242,6 +243,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       await storage.setOnboardingComplete(userId: userId);
       if (_activationWord.isNotEmpty) {
         await storage.setActivationWord(_activationWord);
+      }
+
+      // Persist voice sample paths so they survive app restarts
+      if (_voiceRecordingPaths.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList(
+            'safecircle_voice_samples', _voiceRecordingPaths);
+        debugPrint('[Onboarding] Saved ${_voiceRecordingPaths.length} '
+            'voice samples to permanent storage');
       }
 
       // Start always-on background service — the user authorized this

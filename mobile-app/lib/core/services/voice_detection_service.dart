@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
@@ -7,18 +8,19 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../storage/secure_storage.dart';
 
-/// Continuous voice detection service.
+/// Continuous voice detection service — SILENT operation.
 ///
 /// Listens in the background for the user's activation word and triggers
 /// an emergency alert when detected + verified.
 ///
 /// ## How It Works
 ///
-/// 1. The SpeechToText engine runs continuously in short listening sessions
-/// 2. Each recognized phrase is compared against the stored activation word
-/// 3. Fuzzy matching (Levenshtein distance) handles pronunciation variations
-/// 4. When a match is found with >70% confidence, the alert triggers
-/// 5. The service auto-restarts listening after each session ends
+/// 1. Configures AudioSession to suppress system sounds (no "ding")
+/// 2. The SpeechToText engine runs continuously in long listening sessions
+/// 3. Each recognized phrase is compared against the stored activation word
+/// 4. Fuzzy matching (Levenshtein distance) handles pronunciation variations
+/// 5. When a match is found with >70% confidence, the alert triggers
+/// 6. The service auto-restarts listening after each session ends
 ///
 /// ## Privacy
 ///
@@ -26,6 +28,15 @@ import '../storage/secure_storage.dart';
 /// - SpeechToText uses the device's native engine (Apple/Google)
 /// - No transcripts are stored unless an emergency is triggered
 /// - The user can disable this at any time in Settings
+///
+/// ## Silent Operation
+///
+/// iOS normally plays a "ding" sound when speech recognition starts/stops.
+/// We suppress this by:
+/// 1. Configuring AudioSession to mix with others + duck system sounds
+/// 2. Setting the audio category to playAndRecord (required for speech)
+/// 3. Using longer listening sessions (60s) to reduce restart frequency
+/// 4. 2-second delay between sessions to let audio session settle
 class VoiceDetectionService extends ChangeNotifier {
   final SecureStorage _secureStorage;
   final SpeechToText _speech = SpeechToText();
@@ -37,12 +48,20 @@ class VoiceDetectionService extends ChangeNotifier {
   String _lastRecognized = '';
   double _confidence = 0.0;
   Timer? _restartTimer;
+  bool _audioSessionConfigured = false;
 
   /// How similar the spoken word must be to the activation word (0.0 to 1.0).
   static const double _matchThreshold = 0.70;
 
   /// Seconds to wait before restarting listening after a session ends.
-  static const int _restartDelaySeconds = 1;
+  /// Longer delay = less "ding" sounds on platforms that still play them.
+  static const int _restartDelaySeconds = 2;
+
+  /// Max listen duration per session (longer = fewer restarts = less noise).
+  static const int _listenDurationSeconds = 60;
+
+  /// Pause detection timeout — how long silence before session ends.
+  static const int _pauseForSeconds = 10;
 
   /// Storage key for enabled state.
   static const String _enabledKey = 'safecircle_voice_detection_enabled';
@@ -78,6 +97,9 @@ class VoiceDetectionService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _isEnabled = prefs.getBool(_enabledKey) ?? false;
 
+      // Configure audio session for silent operation BEFORE initializing speech
+      await _configureAudioSession();
+
       // Initialize speech engine
       _isInitialized = await _speech.initialize(
         onError: _onError,
@@ -90,8 +112,8 @@ class VoiceDetectionService extends ChangeNotifier {
         return;
       }
 
-      debugPrint('[VoiceDetection] Initialized. Word: "$_activationWord", '
-          'Enabled: $_isEnabled');
+      debugPrint('[VoiceDetection] Initialized (silent mode). '
+          'Word: "$_activationWord", Enabled: $_isEnabled');
 
       // Auto-start if enabled
       if (_isEnabled) {
@@ -101,6 +123,51 @@ class VoiceDetectionService extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('[VoiceDetection] Init error: $e');
+    }
+  }
+
+  /// Configure AudioSession to suppress system sounds.
+  ///
+  /// This is the key to silent operation on iOS:
+  /// - playAndRecord category allows microphone access
+  /// - duckOthers mode lowers other audio instead of stopping it
+  /// - The combination suppresses the speech recognition "ding"
+  Future<void> _configureAudioSession() async {
+    if (_audioSessionConfigured) return;
+
+    try {
+      final session = await AudioSession.instance;
+
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions: {
+          AVAudioSessionCategoryOptions.defaultToSpeaker,
+          AVAudioSessionCategoryOptions.duckOthers,
+          AVAudioSessionCategoryOptions.allowBluetooth,
+          AVAudioSessionCategoryOptions.mixWithOthers,
+        },
+        avAudioSessionMode: AVAudioSessionMode.measurement,
+        avAudioSessionRouteSharingPolicy:
+            AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions:
+            AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          usage: AndroidAudioUsage.voiceCommunication,
+          flags: {AndroidAudioFlags.none},
+        ),
+        androidAudioFocusGainType:
+            AndroidAudioFocusGainType.gainTransientMayDuck,
+        androidWillPauseWhenDucked: false,
+      ));
+
+      await session.setActive(true);
+      _audioSessionConfigured = true;
+
+      debugPrint('[VoiceDetection] AudioSession configured for silent mode');
+    } catch (e) {
+      debugPrint('[VoiceDetection] AudioSession config error: $e '
+          '(will continue with default — may have system sounds)');
     }
   }
 
@@ -134,25 +201,29 @@ class VoiceDetectionService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Start continuous listening.
+  /// Start continuous listening (silent — no system sounds).
   Future<void> startListening() async {
     if (!_isInitialized || _isListening) return;
     if (_activationWord.isEmpty) return;
 
     try {
+      // Ensure audio session is configured for silent mode
+      await _configureAudioSession();
+
       _isListening = true;
       notifyListeners();
 
       await _speech.listen(
         onResult: _onSpeechResult,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 5),
+        listenFor: const Duration(seconds: _listenDurationSeconds),
+        pauseFor: const Duration(seconds: _pauseForSeconds),
         partialResults: true,
         listenMode: ListenMode.dictation,
         cancelOnError: false,
       );
 
-      debugPrint('[VoiceDetection] Listening started');
+      debugPrint('[VoiceDetection] Listening started (silent, '
+          '${_listenDurationSeconds}s session)');
     } catch (e) {
       debugPrint('[VoiceDetection] Start error: $e');
       _isListening = false;

@@ -37,6 +37,7 @@ dependencies:
   # Audio recording & speech recognition
   record: ^5.1.2
   speech_to_text: ^7.0.0
+  audio_session: ^0.1.21
 
   # Authentication & Security
   local_auth: ^2.2.0
