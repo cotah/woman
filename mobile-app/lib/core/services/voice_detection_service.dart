@@ -138,23 +138,21 @@ class VoiceDetectionService extends ChangeNotifier {
     try {
       final session = await AudioSession.instance;
 
-      await session.configure(const AudioSessionConfiguration(
+      await session.configure(AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-        avAudioSessionCategoryOptions: {
-          AVAudioSessionCategoryOptions.defaultToSpeaker,
-          AVAudioSessionCategoryOptions.duckOthers,
-          AVAudioSessionCategoryOptions.allowBluetooth,
-          AVAudioSessionCategoryOptions.mixWithOthers,
-        },
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.defaultToSpeaker |
+            AVAudioSessionCategoryOptions.duckOthers |
+            AVAudioSessionCategoryOptions.allowBluetooth |
+            AVAudioSessionCategoryOptions.mixWithOthers,
         avAudioSessionMode: AVAudioSessionMode.measurement,
         avAudioSessionRouteSharingPolicy:
             AVAudioSessionRouteSharingPolicy.defaultPolicy,
         avAudioSessionSetActiveOptions:
             AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
-        androidAudioAttributes: AndroidAudioAttributes(
+        androidAudioAttributes: const AndroidAudioAttributes(
           contentType: AndroidAudioContentType.speech,
           usage: AndroidAudioUsage.voiceCommunication,
-          flags: {AndroidAudioFlags.none},
+          flags: AndroidAudioFlags.none,
         ),
         androidAudioFocusGainType:
             AndroidAudioFocusGainType.gainTransientMayDuck,
