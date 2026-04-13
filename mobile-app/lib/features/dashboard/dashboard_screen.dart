@@ -48,6 +48,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final settingsService = context.read<SettingsService>();
       final audioService = context.read<AudioService>();
 
+      // Check if there's already an active incident.
+      if (incidentService.hasActiveIncident) {
+        if (mounted) context.push('/emergency');
+        return;
+      }
+
       // Load settings to enforce audio consent and countdown duration.
       try {
         final settings = await settingsService.loadSettings();
@@ -70,13 +76,109 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context.push('/emergency');
       }
     } catch (e) {
+      final errorMsg = e.toString().toLowerCase();
+
+      // If backend says active incident already exists, try to recover.
+      if (errorMsg.contains('active incident already exists') ||
+          errorMsg.contains('400')) {
+        await _handleExistingIncident();
+        return;
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create alert: $e')),
+          SnackBar(
+            content: const Text('Could not create alert. Please try again.'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     } finally {
       if (mounted) setState(() => _isTriggering = false);
+    }
+  }
+
+  /// Handle the case where backend has a stale active incident.
+  /// Offers the user to cancel it and retry, or go to the active emergency.
+  Future<void> _handleExistingIncident() async {
+    if (!mounted) return;
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Active alert found'),
+        content: const Text(
+          'There is already an active alert in the system. '
+          'Do you want to cancel it and start a new one, '
+          'or go to the active alert?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('cancel_old'),
+            child: const Text('Cancel old & retry'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('go_to'),
+            child: const Text('Go to active alert'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('dismiss'),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || result == null || result == 'dismiss') return;
+
+    final incidentService = context.read<IncidentService>();
+
+    if (result == 'go_to') {
+      // Try to fetch active incidents and navigate
+      try {
+        final history = await incidentService.getIncidentHistory(
+          limit: 1,
+          status: IncidentStatus.active,
+        );
+        if (history.isNotEmpty) {
+          if (mounted) context.push('/emergency');
+        }
+      } catch (_) {}
+      return;
+    }
+
+    if (result == 'cancel_old') {
+      // Fetch the active incident and cancel it
+      try {
+        final history = await incidentService.getIncidentHistory(limit: 5);
+        final activeOnes = history.where((i) =>
+            i.status == IncidentStatus.active ||
+            i.status == IncidentStatus.countdown ||
+            i.status == IncidentStatus.pending ||
+            i.status == IncidentStatus.escalated);
+
+        for (final incident in activeOnes) {
+          await incidentService.cancelIncident(incident.id,
+              reason: 'Auto-cancelled: stale incident');
+        }
+
+        // Small delay for backend to process
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Retry the emergency trigger
+        setState(() => _isTriggering = false);
+        await _triggerEmergency();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not cancel old alert: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
     }
   }
 

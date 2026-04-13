@@ -344,6 +344,60 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Notify trusted contacts that the user has arrived safely.
+   * Called when a Safe Journey is completed (auto or manual arrival).
+   */
+  async sendArrivalNotification(
+    userId: string,
+    userName: string,
+    contacts: TrustedContactInfo[],
+    journeyDestination?: string,
+  ): Promise<void> {
+    const destination = journeyDestination || 'their destination';
+    const message = `${userName} has arrived safely at ${destination}.`;
+
+    this.logger.log(
+      `Sending arrival notification to ${contacts.length} contacts for user ${userId}`,
+    );
+
+    for (const contact of contacts) {
+      const recipient = {
+        contactId: contact.id,
+        name: contact.name,
+        phone: contact.phone,
+        email: contact.email,
+        locale: contact.locale,
+      };
+
+      const payload = {
+        incidentId: `journey-arrival-${userId}`,
+        userName,
+        message,
+      };
+
+      try {
+        await this.pushProvider.send(recipient, payload);
+        this.logger.log(`Arrival push sent to contact ${contact.id}`);
+      } catch (error) {
+        this.logger.warn(
+          `Arrival push failed for contact ${contact.id}: ${error.message}`,
+        );
+      }
+
+      // Also send SMS if the contact has a phone number
+      if (contact.phone && contact.canReceiveSms) {
+        try {
+          await this.smsProvider.send(recipient, payload);
+        } catch (error) {
+          this.logger.debug(
+            `Arrival SMS failed for contact ${contact.id}: ${error.message}`,
+          );
+        }
+      }
+    }
+  }
+
   // ------------------------------------------------------------------
   // Private helpers
   // ------------------------------------------------------------------

@@ -7,6 +7,8 @@ import { JourneyController } from './journey.controller';
 import { JourneyExpiryProcessor } from '../../queue/journey-expiry.processor';
 import { IncidentsModule } from '../incidents/incidents.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ContactsModule } from '../contacts/contacts.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
     BullModule.registerQueue({ name: 'journey-expiry' }),
     IncidentsModule,
     NotificationsModule,
+    ContactsModule,
+    UsersModule,
   ],
   controllers: [JourneyController],
   providers: [JourneyService, JourneyExpiryProcessor],

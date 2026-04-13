@@ -12,7 +12,9 @@ import { Queue } from 'bullmq';
 import { Journey, JourneyStatus } from './entities/journey.entity';
 import { CreateJourneyDto, ExtendJourneyDto, JourneyLocationDto } from './dto/create-journey.dto';
 import { IncidentsService } from '../incidents/incidents.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService, TrustedContactInfo } from '../notifications/notifications.service';
+import { ContactsService } from '../contacts/contacts.service';
+import { UsersService } from '../users/users.service';
 import { TriggerType } from '../incidents/entities/incident.entity';
 
 @Injectable()
@@ -26,6 +28,8 @@ export class JourneyService {
     private readonly expiryQueue: Queue,
     private readonly incidentsService: IncidentsService,
     private readonly notificationsService: NotificationsService,
+    private readonly contactsService: ContactsService,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -519,6 +523,51 @@ export class JourneyService {
     journey.completedAt = new Date();
     await this.journeyRepo.save(journey);
     await this.removeExpiryJob(journey.id);
+
+    // Also remove escalation job if exists
+    try {
+      const escJob = await this.expiryQueue.getJob(`journey-escalation-${journey.id}`);
+      if (escJob) await escJob.remove();
+    } catch (_) {}
+
+    // Notify trusted contacts: "User arrived safely"
+    try {
+      const user = await this.usersService.findById(journey.userId);
+      if (!user) return;
+
+      const userName = `${user.firstName} ${user.lastName}`.trim() || user.email;
+      const contacts = await this.contactsService.findAllByUser(journey.userId);
+
+      if (contacts.length > 0) {
+        const contactInfos: TrustedContactInfo[] = contacts.map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone ?? undefined,
+          email: c.email ?? undefined,
+          priority: c.priority ?? 1,
+          locale: c.locale || 'en',
+          canReceiveSms: !!c.phone,
+          canReceivePush: true,
+          canReceiveVoiceCall: !!c.phone,
+        }));
+
+        await this.notificationsService.sendArrivalNotification(
+          journey.userId,
+          userName,
+          contactInfos,
+          journey.destLabel ?? undefined,
+        );
+
+        this.logger.log(
+          `Arrival notification sent to ${contacts.length} contacts for journey ${journey.id}`,
+        );
+      }
+    } catch (error) {
+      // Non-fatal: journey is already completed, notification is best-effort
+      this.logger.warn(
+        `Failed to send arrival notification for journey ${journey.id}: ${error.message}`,
+      );
+    }
   }
 
   private async removeExpiryJob(journeyId: string): Promise<void> {
