@@ -48,7 +48,7 @@ workflows:
             --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
-      - mobile-app/build/ios/ipa/*.ipa
+      - build/ios/ipa/*.ipa
 
     publishing:
       app_store_connect:
