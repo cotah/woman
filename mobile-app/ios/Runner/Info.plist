@@ -61,6 +61,10 @@
 		<string>fetch</string>
 		<string>processing</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.safecircle.safecircle.processing</string>
+	</array>
 	<!-- Location permission descriptions -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SafeCircle needs your location to share it with trusted contacts when you trigger an alert.</string>
