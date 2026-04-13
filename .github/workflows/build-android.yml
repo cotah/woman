@@ -1,0 +1,56 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch: # Manual trigger only (saves minutes)
+
+env:
+  FLUTTER_VERSION: "3.27.4"
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ─── Checkout ───────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ─── Java Setup ─────────────────────────────────
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # ─── Flutter Setup ──────────────────────────────
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # ─── Install dependencies ───────────────────────
+      - name: Install Flutter dependencies
+        working-directory: mobile-app
+        run: flutter pub get
+
+      # ─── Build APK ─────────────────────────────────
+      - name: Build APK (Release)
+        working-directory: mobile-app
+        env:
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+        run: |
+          flutter build apk \
+            --release \
+            --dart-define=ENVIRONMENT=production \
+            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
+
+      # ─── Upload APK as artifact ─────────────────────
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: safecircle-android
+          path: mobile-app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
