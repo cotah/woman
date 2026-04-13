@@ -5,6 +5,9 @@ workflows:
     instance_type: mac_mini_m2
     working_directory: mobile-app
 
+    integrations:
+      app_store_connect: SafeCircle
+
     environment:
       flutter: 3.27.4
       xcode: latest
