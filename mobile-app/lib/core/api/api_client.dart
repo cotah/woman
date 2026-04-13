@@ -57,8 +57,14 @@ class ApiClient {
       }
 
       // Use a separate Dio instance to avoid interceptor loops.
+      // Must include timeouts — without them a request to an unreachable
+      // host (e.g. the non-existent prod domain) hangs forever and the
+      // app stays on the splash screen indefinitely.
       final refreshDio = Dio(BaseOptions(
         baseUrl: AppConfig.instance.apiBaseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
+        sendTimeout: const Duration(seconds: 15),
         headers: {'Content-Type': 'application/json'},
       ));
 

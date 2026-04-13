@@ -57,7 +57,7 @@ class AppConfig {
       case Environment.prod:
         _instance = AppConfig._(
           environment: Environment.prod,
-          apiBaseUrl: 'https://api.safecircle.app/api',
+          apiBaseUrl: 'https://api.safecircle.app/api/v1',
           wsUrl: 'wss://api.safecircle.app',
           mapboxToken: _buildMapboxToken,
         );

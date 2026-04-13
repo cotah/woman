@@ -30,9 +30,33 @@ class AuthService extends ChangeNotifier {
         _secureStorage = secureStorage;
 
   /// Attempt to restore a session from stored tokens.
+  ///
+  /// Wrapped in a 20-second safety timeout so the app never stays on
+  /// the splash screen forever — even if the backend is unreachable or
+  /// an unexpected error occurs, the user will be sent to the login screen.
   Future<void> tryAutoLogin() async {
     _setState(const AuthState.loading());
 
+    try {
+      await _tryAutoLoginInner().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          debugPrint('[Auth] Auto-login timed out after 20s — going to login');
+          _clearTokens();
+          _setState(const AuthState.unauthenticated());
+        },
+      );
+    } catch (e) {
+      // Safety net: any uncaught error still resolves to unauthenticated
+      // so the app never gets stuck on the splash screen.
+      debugPrint('[Auth] Auto-login unexpected error: $e');
+      await _clearTokens();
+      _setState(const AuthState.unauthenticated());
+    }
+  }
+
+  /// Inner implementation of auto-login logic (called by [tryAutoLogin]).
+  Future<void> _tryAutoLoginInner() async {
     final accessToken = await _secureStorage.getAccessToken();
     if (accessToken == null) {
       _setState(const AuthState.unauthenticated());
