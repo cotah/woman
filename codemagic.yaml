@@ -11,11 +11,9 @@ workflows:
     environment:
       flutter: 3.27.4
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.safecircle.safecircle
       vars:
         MAPBOX_TOKEN: ${MAPBOX_TOKEN}
+        BUNDLE_ID: "com.safecircle.safecircle"
 
     scripts:
       - name: Get Flutter packages
@@ -23,6 +21,18 @@ workflows:
 
       - name: Install CocoaPods
         script: cd ios && pod install
+
+      - name: Set up keychain
+        script: keychain initialize
+
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Use profiles
+        script: xcode-project use-profiles
 
       - name: Build iOS
         script: |
