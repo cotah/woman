@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'package:geolocator/geolocator.dart';
 import 'core/config/app_config.dart';
@@ -32,6 +33,10 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_notifier.dart';
 import 'core/utils/coercion_handler.dart';
 
+/// Sentry DSN injected at build time via --dart-define=SENTRY_DSN=...
+/// If not provided, Sentry is disabled (no crashes are reported).
+const String _sentryDsn = String.fromEnvironment('SENTRY_DSN');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -56,10 +61,29 @@ void main() async {
   final secureStorage = SecureStorage();
   final apiClient = ApiClient(secureStorage: secureStorage);
 
-  runApp(SafeCircleApp(
-    secureStorage: secureStorage,
-    apiClient: apiClient,
-  ));
+  // If Sentry DSN is configured, wrap the app with crash reporting.
+  // Otherwise, run normally (e.g. during local development).
+  if (_sentryDsn.isNotEmpty) {
+    await SentryFlutter.init(
+      (options) {
+        options.dsn = _sentryDsn;
+        options.environment = envName;
+        options.tracesSampleRate = 0.3; // 30% of transactions for performance monitoring
+        options.attachScreenshot = true;
+        options.sendDefaultPii = false; // Don't send personal info
+        options.debug = envName == 'dev';
+      },
+      appRunner: () => runApp(SafeCircleApp(
+        secureStorage: secureStorage,
+        apiClient: apiClient,
+      )),
+    );
+  } else {
+    runApp(SafeCircleApp(
+      secureStorage: secureStorage,
+      apiClient: apiClient,
+    ));
+  }
 }
 
 class SafeCircleApp extends StatefulWidget {

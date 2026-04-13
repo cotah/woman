@@ -1,7 +1,7 @@
 name: safecircle
 description: SafeCircle - Personal Safety Platform
 publish_to: 'none'
-version: 1.0.0+4
+version: 1.0.0+5
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -56,6 +56,9 @@ dependencies:
   uuid: ^4.4.0
   intl: any
   crypto: ^3.0.3
+
+  # Error monitoring & crash reporting
+  sentry_flutter: ^8.12.0
 
 dependency_overrides:
   record_linux: any
