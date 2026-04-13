@@ -57,6 +57,10 @@ dependencies:
   intl: any
   crypto: ^3.0.3
 
+dependency_overrides:
+  record_linux: any
+  record_windows: any
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
