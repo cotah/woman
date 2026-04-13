@@ -27,7 +27,37 @@ workflows:
 
       - name: Fetch signing files
         script: |
-          echo "$CM_CERTIFICATE_KEY" > /tmp/cert_key.pem
+          cat <<'KEYEOF' > /tmp/cert_key.pem
+          -----BEGIN PRIVATE KEY-----
+          MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCHMwJfeSV6NzNw
+          /5ryVq2BecPruRhev7MIcgGnmnoxHNcuIhER5rjC+m93nWgH5JKOu0dsimmO9LBC
+          jm30XR/lGm6ma5yMHXIzsl7rOTrubZ4D13WjukDOKs13ktRBQjP77X+RYPudyJri
+          CxuI/IC5vBp98cvNkxWPai4dgpH1p37VXithpZ975Fb8/2YeByTyW16hEhcs5r+P
+          S0EiemZFTgX5RxLT7suzcIo9pODzEG/SbrMpvZYuPXvG8b7WVz+FDdzVZqlsiKc0
+          gKtan3pfXSx0o+qhQ5RGLk8p+eQScV3q9kuPpVuM+nx0TbtPBDDxX66Y6JOoz2bh
+          uYLMXMJHAgMBAAECggEANkZqhfRm8LTXYF4kkHPujINa/Tcdyu+vSk0mT+gKdMvs
+          sHb5nlOeyZtrAzx8JmsC0OzrA+5e6QZe+iEekBKQetNNJ18dBfzOO2W4iDq95zi3
+          TjiBX/ymBn4VZRLbReVzZAgYhb7G1DVTxDoMUEZ50NZsVjIrDHinF59bKvqfaNvD
+          AqcrFRy4knJULL0ObPxhZtp/HivDtAHagCW0qbh10T7pqC3UIDY2G0PvX//5axVV
+          xAwHG3ZUpywA7Xg8BUzyg1QWMAcycPsNt64naj5gAYVoYx7ZG8ad51gBIPlkxwMW
+          Bt2MlJLY1aM91iacB6L6aqgbym0z+NfeQfKFeA1LjQKBgQC8okO2GfFVioCViu9J
+          CAQRS6ddJYldi3T/IlVgBuufx13MhgTD+bW1ulAbLPBw+QyK3QO/IckyDsmVNNxS
+          mZ6OHEjq2b/8w00PmO6lRPIV48miPOK4TEbg/na/jNfGvWvy0I/PM4mo1fk+LVkd
+          nM4/0OIax9YbjEadDyqLeiyO6wKBgQC3e4UB/NOR7l1QICLfQRSQMTShmSoAaoad
+          CBRNk8FWsEGrDkXhhaiHbdE1SsWi9UYqCk5R/Li6fnuBArhpJIICqN8p1/xV7tV3
+          NVNNGPuY+pUNyn2VTYMUSDqQxF2fb+1Frka2QQjGBR1DEgXo7vi+FI+X92FoTdlj
+          d1Q+kNbbFQKBgEpaCyZ0A1QcS6KmKLs4laHbmBR2/zYICg2mktBO6gEIrEg5axd0
+          DdObpIeRpxRgljkF9LwZrRw2B+7v7wf/1Sderr8jJTGUKYPEXAx4qJNIPenc5eCO
+          8EEvC89kzIhhkXMcEhMx1UjfTmbbqQyrCgDNbNHxgstI92xg1fw0I+wRAoGAfHqy
+          XAzYxJKAgBGtVuViPAkF+fRdiHa86OBIVfE+I7/kbVZ7lmsFUQvx+UPHHa1lcrQX
+          OoxID04sH/Rmg/6erYtAC7VanjowXHWzFAU0/C5U3UxZMuepXCM8iGaQVdCrmrCH
+          jLJGb4GcvpoFpGgsHVj5qlHMpeTa7R5R6zh8a5kCgYADPh9TcLpCo0EdgCr5Jscr
+          d3y7n3ZgkTNYhHmAEz2b5H2roZALXutIyFOriI8Jm2V+iozR3a5pSA0u6tCxN7/b
+          qEdeU9vDuMEO9jlNVV6dw3FmBvbH8oDXo2DimWgNjTNxvzrgeqY1n0KOnDKt+gHc
+          yGE0+46RoM7Peb5bWYyPGQ==
+          -----END PRIVATE KEY-----
+          KEYEOF
+          sed -i 's/^          //' /tmp/cert_key.pem
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
