@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { TrackingService } from './tracking.service';
@@ -180,7 +181,7 @@ export class TrackingController {
   @Patch('places/:id/safe')
   async confirmPlaceSafe(
     @Req() req: any,
-    @Param('id') placeId: string,
+    @Param('id', ParseUUIDPipe) placeId: string,
     @Body() body: { label?: string },
   ) {
     const place = await this.trackingService.confirmPlaceSafe(
@@ -202,7 +203,7 @@ export class TrackingController {
   @Patch('places/:id/flag')
   async flagPlace(
     @Req() req: any,
-    @Param('id') placeId: string,
+    @Param('id', ParseUUIDPipe) placeId: string,
     @Body() body: { reason?: string },
   ) {
     const place = await this.trackingService.flagPlace(
