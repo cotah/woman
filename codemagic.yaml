@@ -1,0 +1,38 @@
+workflows:
+  ios-release:
+    name: iOS Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    working_directory: mobile-app
+
+    environment:
+      flutter: 3.27.4
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.safecircle.safecircle
+      vars:
+        MAPBOX_TOKEN: ${MAPBOX_TOKEN}
+
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Install CocoaPods
+        script: cd ios && pod install
+
+      - name: Build iOS
+        script: |
+          flutter build ipa \
+            --release \
+            --dart-define=ENVIRONMENT=production \
+            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - mobile-app/build/ios/ipa/*.ipa
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
