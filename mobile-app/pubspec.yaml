@@ -35,7 +35,7 @@ dependencies:
   latlong2: ^0.9.1
 
   # Audio recording & speech recognition
-  record: ^5.1.2
+  record: ^5.2.0
   speech_to_text: ^7.0.0
   audio_session: ^0.1.21
 
