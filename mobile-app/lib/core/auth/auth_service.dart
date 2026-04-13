@@ -34,6 +34,12 @@ class AuthService extends ChangeNotifier {
   /// Wrapped in a 20-second safety timeout so the app never stays on
   /// the splash screen forever — even if the backend is unreachable or
   /// an unexpected error occurs, the user will be sent to the login screen.
+  ///
+  /// IMPORTANT: The timeout and catch blocks check if the user is already
+  /// authenticated before overriding the state. This prevents a race
+  /// condition where the user registers/logs in while tryAutoLogin is
+  /// still running in the background — the timeout would otherwise
+  /// clear their tokens and kick them back to login.
   Future<void> tryAutoLogin() async {
     _setState(const AuthState.loading());
 
@@ -41,14 +47,16 @@ class AuthService extends ChangeNotifier {
       await _tryAutoLoginInner().timeout(
         const Duration(seconds: 20),
         onTimeout: () {
+          // Only reset if nobody else has authenticated in the meantime
+          if (_state.isAuthenticated) return;
           debugPrint('[Auth] Auto-login timed out after 20s — going to login');
           _clearTokens();
           _setState(const AuthState.unauthenticated());
         },
       );
     } catch (e) {
-      // Safety net: any uncaught error still resolves to unauthenticated
-      // so the app never gets stuck on the splash screen.
+      // Only reset if nobody else has authenticated in the meantime
+      if (_state.isAuthenticated) return;
       debugPrint('[Auth] Auto-login unexpected error: $e');
       await _clearTokens();
       _setState(const AuthState.unauthenticated());
@@ -173,7 +181,11 @@ class AuthService extends ChangeNotifier {
   /// Used by the splash screen safety timer when auto-login has not
   /// completed within the timeout. This changes the auth state so the
   /// router's redirect naturally sends the user to the login screen.
+  ///
+  /// Does nothing if the user is already authenticated (prevents
+  /// race condition with concurrent register/login).
   void forceUnauthenticated() {
+    if (_state.isAuthenticated) return;
     _refreshTimer?.cancel();
     _refreshTimer = null;
     _setState(const AuthState.unauthenticated());
