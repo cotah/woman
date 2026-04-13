@@ -74,8 +74,20 @@ workflows:
             --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
             --export-options-plist=/Users/builder/export_options.plist
 
+      - name: Find IPA location
+        script: |
+          echo "=== Searching for .ipa files ==="
+          find /Users/builder/clone -name "*.ipa" -type f 2>/dev/null
+          echo "=== Build directory contents ==="
+          ls -la build/ios/ipa/ 2>/dev/null || echo "build/ios/ipa/ not found"
+          echo "=== PWD ==="
+          pwd
+
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/**/*.ipa
+      - /Users/builder/clone/mobile-app/build/ios/ipa/*.ipa
+      - /Users/builder/clone/mobile-app/build/**/*.ipa
 
     publishing:
       app_store_connect:
