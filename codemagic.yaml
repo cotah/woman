@@ -44,7 +44,7 @@ workflows:
         script: |
           flutter build ipa \
             --release \
-            --dart-define=ENVIRONMENT=production \
+            --dart-define=ENVIRONMENT=staging \
             --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
             --export-options-plist=/Users/builder/export_options.plist
 
