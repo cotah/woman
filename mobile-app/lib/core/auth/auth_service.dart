@@ -168,6 +168,17 @@ class AuthService extends ChangeNotifier {
     _setState(const AuthState.unauthenticated());
   }
 
+  /// Force auth state to unauthenticated without calling backend.
+  ///
+  /// Used by the splash screen safety timer when auto-login has not
+  /// completed within the timeout. This changes the auth state so the
+  /// router's redirect naturally sends the user to the login screen.
+  void forceUnauthenticated() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    _setState(const AuthState.unauthenticated());
+  }
+
   /// Refresh the current user profile from backend.
   Future<void> refreshProfile() async {
     if (!_state.isAuthenticated) return;

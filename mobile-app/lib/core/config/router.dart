@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../auth/auth_service.dart';
 import '../auth/auth_state.dart';
@@ -258,11 +259,16 @@ class _SplashScreenState extends State<_SplashScreen> {
     super.initState();
 
     // Safety net: if we're still on splash after 10 seconds, something
-    // went wrong with auth initialization. Force-navigate to login.
+    // went wrong with auth initialization. Force auth state to
+    // unauthenticated so the router naturally redirects to login.
+    //
+    // We CANNOT call context.go('/auth/login') here because the router's
+    // redirect checks auth state — if it's still 'loading', it sends us
+    // right back to splash. Instead, we change the state itself.
     _safetyTimer = Timer(const Duration(seconds: 10), () {
       if (!mounted) return;
-      debugPrint('[Splash] Safety timer fired — forcing navigation to login');
-      context.go('/auth/login');
+      debugPrint('[Splash] Safety timer fired — forcing auth to unauthenticated');
+      context.read<AuthService>().forceUnauthenticated();
     });
   }
 
