@@ -14,6 +14,7 @@ workflows:
       vars:
         MAPBOX_TOKEN: ${MAPBOX_TOKEN}
         BUNDLE_ID: "com.safecircle.safecircle"
+        CERT_KEY: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUVyUUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRQ0hNd0pmZVNWNk56TncKLzVyeVZxMkJlY1BydVJoZXY3TUljZ0dubW5veEhOY3VJaEVSNXJqQyttOTNuV2dINUpLT3UwZHNpbW1POUxCQwpqbTMwWFIvbEdtNm1hNXlNSFhJenNsN3JPVHIrYlo0RDEzV2p1a0RPS3MxM2t0UkJRalA3N1grUllQdWR5SnJpCkN4dUkvSUM1dkJwOThjdk5reFdQYWk0ZGdwSDFwMzdWWGl0aHBaOTc1RmI4LzJZZUJ5VHlXMTZoRWhjczVyK1AKUzBFaWVtWkZUZ1g1UnhMVDdzdXpjSW85cE9EekVHL1Nick1wdlpZdVBYdkc4YjdXVnorRkRkelZacWxzaUtjMAoTXHRubjNwZlhTeDBvK3FoUTVSR0xrOHArZVFTY1YzcTlrdVBwVnVNK254MFRidFBCRER4WDY2WTZKt296MmJoCnVZTE1YTUpIQWdNQkFBRUNnZ0VBTmtacWhkUm04TFRYWUhoa2tIUHVqSU5hL1RjZHl1K3ZTazBtVCtnS2RNdnMKc0hiNW5sT2V5WnRyQXp4OEptc0MwT3pyQSs1ZTZRWmUraUVla0JLUWVUTnRKMThkQmZ6T08yVzRpRHE5NXppMwpUamlCWC95bUJuNFZaUkxiUmVWelpBZ1loYjdHMURWVHhEb01VRVo1ME5ac1ZqSXJESGluRjU5Ykt2cWZhTnZECkFxY3JGUnk0a25KVUxMME9iUHhoWnRwL0hpdkR0QUhhZ0NXMHFiaD3UVDdwcUMzVUlEWTJHMFB2WC8vNWF4VlYKeEF3SEczWlVweXdBN1hnOEJVenlnMVFXTUFjeWNQc050NjRuYWo1Z0FZVm9ZeDdaRzhhZDUxZ0JJUGxreHdNVwpCdDJNbEpMWTFhTTkxaWFjQjZMNmFxZ2J5bTB6K05mZVFmS0ZlQTFMalFLQmdRQzhva08yR2ZGVmlvQ1ZpdTlKCkNBUVJTNmRkSlxkZGkzVC9JbFZnQnV1ZngxM01oZ1REK2JXMXVsQWJMUEJ3K1F5SzNRTy9JY2t5RHNtVk5OeFMKbVo2T0hFanEyYi84dzAwUG1PNmxSUElWNDhtaVBPSzRURWJnL25hL2pOZkd2V3Z5MEkvUE00bW8xZmsrTFZrZApuTTQvME9JYXQ5WWJqRWFkRHlxTGVpeU82d0tCZ1FDM2U0VUIvTk9SN2wxUUlDTGZRUlNRTVRTaG1Tb0Fhb2FkCkNCUk5rOEZXc0VHckRrWGhoYWlIYmRFMVNzV2k5VVlxQ2s1Ui9MaTZmbnVCQXJocEpJSUNxTjhwMS94VjdRVjMKTlZOTkdQdVkrcFVOeW4yVlRZTVVTRHFReEYyZmIrMUZya2EyUVFqR0JSMURFcVhvN3ZpK0ZJK1g5MkZvVGRsagpkMVEra05iYkZRS0JnRXBhQ3laMEExUWNTNkttS0xzNGxhSGJtQlIyL3pZSUNnMm1rdEJPNmdFSXJFZzVheGQwCkRkT2JwSWVScHhSZ2xqa0Y5THdaclJ3MkIrN3Y3d2YvMVNkZXJyOGpKVEdVS1lQRVhBeDRxSk5JUGVuYzVlQ08KOEVRXUM4OWt6SWloa1hNY0VoTXgxVWpmVG1iYnFReXJDZ0ROYk5IeGdzdEk5MnhnMWZ3MEkrd1JBb0dBZkhxeQpYQXpZeEpLQWdCR3RWdVZpUEFrRitmUmRpSGE4Nk9CSVZGRSTJNY2tiVlo3bG1zRlVRdngrVVBISGExbGNyUVgKT294SUQwNHNIL1JtZy82ZXJZdEFDN1Zhbmpvd1hIV3pGQVUwL0M1VTNVeFpNdWVwWENNOGlHYVFWZENybXJDSApqTEpHYjRHY3Zwb0ZwR2dzSFZqNXFsSE1wZVRhN1I1UjZ6aDhhNWtDZ1lBRFBoOVRjTHBDbzBFZGdDcjVKc2NyCmQzeTduM1pna1ROWWhIbUFFejJiNUgycm9aQUxYdXRJeUZPcmlJOEptMlYraW96UjNhNXBTQTB1NnRDeE43L2IKcUVkZVU5dkR1TUVPOWXNK1ZWNmR3M0ZtQnZiSDhvRFhvMkRpbVdnTmpUTnh2enJnZXFZMW4wS09uREt0K2dIYwp5R0UwKzQ2Um9NN1BlYjViV1l5UEdRPT0KLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo="
 
     scripts:
       - name: Get Flutter packages
@@ -27,51 +28,17 @@ workflows:
 
       - name: Fetch signing files
         script: |
-          cat <<'KEYEOF' > /tmp/cert_key.pem
-          -----BEGIN PRIVATE KEY-----
-          MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCHMwJfeSV6NzNw
-          /5ryVq2BecPruRhev7MIcgGnmnoxHNcuIhER5rjC+m93nWgH5JKOu0dsimmO9LBC
-          jm30XR/lGm6ma5yMHXIzsl7rOTrubZ4D13WjukDOKs13ktRBQjP77X+RYPudyJri
-          CxuI/IC5vBp98cvNkxWPai4dgpH1p37VXithpZ975Fb8/2YeByTyW16hEhcs5r+P
-          S0EiemZFTgX5RxLT7suzcIo9pODzEG/SbrMpvZYuPXvG8b7WVz+FDdzVZqlsiKc0
-          gKtan3pfXSx0o+qhQ5RGLk8p+eQScV3q9kuPpVuM+nx0TbtPBDDxX66Y6JOoz2bh
-          uYLMXMJHAgMBAAECggEANkZqhfRm8LTXYF4kkHPujINa/Tcdyu+vSk0mT+gKdMvs
-          sHb5nlOeyZtrAzx8JmsC0OzrA+5e6QZe+iEekBKQetNNJ18dBfzOO2W4iDq95zi3
-          TjiBX/ymBn4VZRLbReVzZAgYhb7G1DVTxDoMUEZ50NZsVjIrDHinF59bKvqfaNvD
-          AqcrFRy4knJULL0ObPxhZtp/HivDtAHagCW0qbh10T7pqC3UIDY2G0PvX//5axVV
-          xAwHG3ZUpywA7Xg8BUzyg1QWMAcycPsNt64naj5gAYVoYx7ZG8ad51gBIPlkxwMW
-          Bt2MlJLY1aM91iacB6L6aqgbym0z+NfeQfKFeA1LjQKBgQC8okO2GfFVioCViu9J
-          CAQRS6ddJYldi3T/IlVgBuufx13MhgTD+bW1ulAbLPBw+QyK3QO/IckyDsmVNNxS
-          mZ6OHEjq2b/8w00PmO6lRPIV48miPOK4TEbg/na/jNfGvWvy0I/PM4mo1fk+LVkd
-          nM4/0OIax9YbjEadDyqLeiyO6wKBgQC3e4UB/NOR7l1QICLfQRSQMTShmSoAaoad
-          CBRNk8FWsEGrDkXhhaiHbdE1SsWi9UYqCk5R/Li6fnuBArhpJIICqN8p1/xV7tV3
-          NVNNGPuY+pUNyn2VTYMUSDqQxF2fb+1Frka2QQjGBR1DEgXo7vi+FI+X92FoTdlj
-          d1Q+kNbbFQKBgEpaCyZ0A1QcS6KmKLs4laHbmBR2/zYICg2mktBO6gEIrEg5axd0
-          DdObpIeRpxRgljkF9LwZrRw2B+7v7wf/1Sderr8jJTGUKYPEXAx4qJNIPenc5eCO
-          8EEvC89kzIhhkXMcEhMx1UjfTmbbqQyrCgDNbNHxgstI92xg1fw0I+wRAoGAfHqy
-          XAzYxJKAgBGtVuViPAkF+fRdiHa86OBIVfE+I7/kbVZ7lmsFUQvx+UPHHa1lcrQX
-          OoxID04sH/Rmg/6erYtAC7VanjowXHWzFAU0/C5U3UxZMuepXCM8iGaQVdCrmrCH
-          jLJGb4GcvpoFpGgsHVj5qlHMpeTa7R5R6zh8a5kCgYADPh9TcLpCo0EdgCr5Jscr
-          d3y7n3ZgkTNYhHmAEz2b5H2roZALXutIyFOriI8Jm2V+iozR3a5pSA0u6tCxN7/b
-          qEdeU9vDuMEO9jlNVV6dw3FmBvbH8oDXo2DimWgNjTNxvzrgeqY1n0KOnDKt+gHc
-          yGE0+46RoM7Peb5bWYyPGQ==
-          -----END PRIVATE KEY-----
-          KEYEOF
-          sed -i 's/^          //' /tmp/cert_key.pem
+          echo "$CERT_KEY" | base64 --decode > /tmp/cert_key.pem
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
             --certificate-key="$(cat /tmp/cert_key.pem)"
 
+      - name: Install certificates in keychain
+        script: keychain add-certificates
+
       - name: Use profiles
         script: xcode-project use-profiles
-
-      - name: Check export options
-        script: |
-          echo "=== Checking export_options.plist ==="
-          cat /Users/builder/export_options.plist 2>/dev/null || echo "NOT FOUND at /Users/builder/export_options.plist"
-          find /Users/builder -name "export_options*" -type f 2>/dev/null
-          find /Users/builder -name "ExportOptions*" -type f 2>/dev/null
 
       - name: Build iOS
         script: |
@@ -79,41 +46,11 @@ workflows:
             --release \
             --dart-define=ENVIRONMENT=production \
             --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
-            --export-options-plist=/Users/builder/export_options.plist 2>&1 || true
-          echo "=== Checking for xcarchive ==="
-          find build -name "*.xcarchive" -type d 2>/dev/null
-          echo "=== Checking for ipa ==="
-          find build -name "*.ipa" -type f 2>/dev/null
-          find /Users/builder -name "*.ipa" -type f 2>/dev/null
-
-      - name: Export IPA manually if needed
-        script: |
-          if [ ! -f build/ios/ipa/*.ipa ]; then
-            echo "IPA not found, exporting manually..."
-            ARCHIVE_PATH=$(find build -name "*.xcarchive" -type d | head -1)
-            if [ -n "$ARCHIVE_PATH" ]; then
-              echo "Found archive at: $ARCHIVE_PATH"
-              xcodebuild -exportArchive \
-                -archivePath "$ARCHIVE_PATH" \
-                -exportPath build/ios/ipa \
-                -exportOptionsPlist /Users/builder/export_options.plist 2>&1 || \
-              xcodebuild -exportArchive \
-                -archivePath "$ARCHIVE_PATH" \
-                -exportPath build/ios/ipa \
-                -exportOptionsPlist ios/ExportOptions.plist 2>&1 || true
-              echo "=== After manual export ==="
-              find build/ios -name "*.ipa" -type f 2>/dev/null
-            else
-              echo "No xcarchive found either"
-            fi
-          else
-            echo "IPA already exists"
-          fi
+            --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
       - build/**/*.ipa
-      - /Users/builder/clone/mobile-app/build/**/*.ipa
 
     publishing:
       app_store_connect:
