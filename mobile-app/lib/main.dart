@@ -101,7 +101,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   void initState() {
     super.initState();
 
-    // Initialize services.
+    // ── ESSENTIAL services (app cannot function without these) ──────
     _authService = AuthService(
       apiClient: widget.apiClient,
       secureStorage: widget.secureStorage,
@@ -132,27 +132,32 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _settingsService = SettingsService(apiClient: widget.apiClient);
     _contactsService = ContactsService(apiClient: widget.apiClient);
 
+    // ── NON-ESSENTIAL services (wrapped in try-catch so a crash in ──
+    // ── any one of them never prevents the app from reaching login) ─
     _offlineQueueService = OfflineQueueService();
-    _offlineQueueService.initialize();
+    try { _offlineQueueService.initialize(); }
+    catch (e) { debugPrint('[Main] OfflineQueueService init failed: $e'); }
+
     _smsFallbackService = SmsFallbackService();
+
     _backgroundService = BackgroundService();
-    _backgroundService.initialize();
+    try { _backgroundService.initialize(); }
+    catch (e) { debugPrint('[Main] BackgroundService init failed: $e'); }
 
     _locationTrackerService = LocationTrackerService(
       apiClient: widget.apiClient,
     );
-    _locationTrackerService.initialize();
+    try { _locationTrackerService.initialize(); }
+    catch (e) { debugPrint('[Main] LocationTrackerService init failed: $e'); }
 
-    // Auto-start background service and tracking.
-    // This ensures 24/7 protection is active from the moment the user opens the app.
-    // On iOS: starts CLLocationManager with background updates + significant change monitoring.
-    // On Android: starts ForegroundService with wake lock + boot receiver.
+    // Auto-start background service and tracking (non-blocking, non-essential at launch).
     _initializeAlwaysOnTracking();
 
     _learnedPlacesService = LearnedPlacesService(
       tracker: _locationTrackerService,
     );
-    _learnedPlacesService.initialize();
+    try { _learnedPlacesService.initialize(); }
+    catch (e) { debugPrint('[Main] LearnedPlacesService init failed: $e'); }
 
     _voiceDetectionService = VoiceDetectionService(
       secureStorage: widget.secureStorage,
@@ -162,7 +167,8 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
       debugPrint('[Main] Voice activation detected! Triggering SOS...');
       _triggerVoiceEmergency();
     };
-    _voiceDetectionService.initialize();
+    try { _voiceDetectionService.initialize(); }
+    catch (e) { debugPrint('[Main] VoiceDetectionService init failed: $e'); }
 
     _geofenceService = GeofenceService(
       tracker: _locationTrackerService,
@@ -173,15 +179,24 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
       debugPrint('[Main] Geofence ${event.name}: "${geofence.name}"');
       _handleGeofenceEvent(geofence, event);
     };
-    _geofenceService.initialize();
+    try { _geofenceService.initialize(); }
+    catch (e) { debugPrint('[Main] GeofenceService init failed: $e'); }
 
     _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
     _router = buildRouter(_authService, secureStorage: widget.secureStorage);
 
-    // Initialize notifications and attempt auto-login.
-    _notificationService.initialize();
+    // ── CRITICAL: these two calls MUST always run ──────────────────
+    // Wrapped in their own try-catch as a final safety net.
+    try {
+      _notificationService.initialize();
+    } catch (e) {
+      debugPrint('[Main] NotificationService init failed: $e');
+    }
+
+    // This is the call that transitions the app from splash → login/home.
+    // It MUST run regardless of what happened above.
     _authService.tryAutoLogin();
   }
 

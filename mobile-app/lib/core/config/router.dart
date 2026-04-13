@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -236,9 +237,40 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
   );
 }
 
-/// Simple splash screen shown during auth state initialization.
-class _SplashScreen extends StatelessWidget {
+/// Splash screen with a safety timer.
+///
+/// If auth initialization hasn't completed within 10 seconds, the splash
+/// forces navigation to the login screen. This prevents the app from
+/// being stuck on splash indefinitely due to any iOS-specific startup
+/// issue (Keychain hang, plugin crash, permission dialog blocking, etc.).
+class _SplashScreen extends StatefulWidget {
   const _SplashScreen();
+
+  @override
+  State<_SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<_SplashScreen> {
+  Timer? _safetyTimer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Safety net: if we're still on splash after 10 seconds, something
+    // went wrong with auth initialization. Force-navigate to login.
+    _safetyTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      debugPrint('[Splash] Safety timer fired — forcing navigation to login');
+      context.go('/auth/login');
+    });
+  }
+
+  @override
+  void dispose() {
+    _safetyTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
