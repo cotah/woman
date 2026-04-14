@@ -84,21 +84,25 @@ class _SystemReadinessScreenState extends State<SystemReadinessScreen> {
   }
 
   Future<void> _checkDeviceState() async {
-    final contactsService = context.read<ContactsService>();
-    final coercionHandler = context.read<CoercionHandler>();
-    final wsService = context.read<WebSocketService>();
-    final locationService = context.read<LocationService>();
+    try {
+      final contactsService = context.read<ContactsService>();
+      final coercionHandler = context.read<CoercionHandler>();
+      final wsService = context.read<WebSocketService>();
+      final locationService = context.read<LocationService>();
 
-    final hasPin = await coercionHandler.hasCoercionPin();
-    final lastPos = locationService.lastPosition;
+      final hasPin = await coercionHandler.hasCoercionPin();
+      final lastPos = locationService.lastPosition;
 
-    if (mounted) {
-      setState(() {
-        _contactCount = contactsService.contactCount;
-        _coercionPinSet = hasPin;
-        _wsConnected = wsService.isConnected;
-        _lastLocationTimestamp = lastPos?.timestamp;
-      });
+      if (mounted) {
+        setState(() {
+          _contactCount = contactsService.contactCount;
+          _coercionPinSet = hasPin;
+          _wsConnected = wsService.isConnected;
+          _lastLocationTimestamp = lastPos?.timestamp;
+        });
+      }
+    } catch (e) {
+      debugPrint('[SystemReadiness] Device state check failed: $e');
     }
   }
 
@@ -138,15 +142,22 @@ class _SystemReadinessScreenState extends State<SystemReadinessScreen> {
   }
 
   Future<void> _checkNativeCapabilities() async {
-    final bgService = context.read<BackgroundService>();
-    final alarmService = context.read<AlarmService>();
-
-    if (mounted) {
-      setState(() {
-        _backgroundNativeAvailable = bgService.isNativeServiceAvailable;
-        _alarmNativeAvailable = alarmService.nativeAudioAvailable;
-      });
+    try {
+      final bgService = context.read<BackgroundService>();
+      _backgroundNativeAvailable = bgService.isNativeServiceAvailable;
+    } catch (e) {
+      debugPrint('[SystemReadiness] BackgroundService check failed: $e');
     }
+
+    try {
+      final alarmService = context.read<AlarmService>();
+      _alarmNativeAvailable = alarmService.nativeAudioAvailable;
+    } catch (e) {
+      debugPrint('[SystemReadiness] AlarmService not available: $e');
+      _alarmNativeAvailable = false;
+    }
+
+    if (mounted) setState(() {});
   }
 
   @override
