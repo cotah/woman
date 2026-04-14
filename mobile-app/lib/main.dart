@@ -399,6 +399,13 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
             darkTheme: AppTheme.darkTheme,
             themeMode: themeNotifier.themeMode,
             routerConfig: _router,
+            // Dismiss keyboard when tapping outside any text field.
+            builder: (context, child) {
+              return GestureDetector(
+                onTap: () => FocusScope.of(context).unfocus(),
+                child: child,
+              );
+            },
           );
         },
       ),

@@ -31,7 +31,8 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with WidgetsBindingObserver {
   final _pageController = PageController();
   int _currentStep = 0;
   static const _totalSteps = 6;
@@ -58,13 +59,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkExistingPermissions();
+  }
+
+  /// Re-check permissions when user returns from iOS Settings.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkExistingPermissions();
+    }
   }
 
   Future<void> _checkExistingPermissions() async {
     final locPerm = await Geolocator.checkPermission();
     final micPerm = await Permission.microphone.status;
     final notifPerm = await Permission.notification.status;
+
+    debugPrint('[Onboarding] Permissions check: '
+        'location=${locPerm.name}, '
+        'mic=${micPerm.name}, '
+        'notif=${notifPerm.name}');
 
     if (mounted) {
       setState(() {
@@ -78,6 +93,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _contactNameController.dispose();
     _emergencyMessageController.dispose();
@@ -124,6 +140,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       permission = await Geolocator.requestPermission();
     }
 
+    debugPrint('[Onboarding] Location permission result: ${permission.name}');
+
     if (permission == LocationPermission.deniedForever) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -136,19 +154,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       }
       await openAppSettings();
-      return;
     }
 
-    if (mounted) {
-      setState(() {
-        _locationGranted = permission == LocationPermission.always ||
-            permission == LocationPermission.whileInUse;
-      });
-    }
+    // Always re-check all permissions to sync UI with actual state
+    await _checkExistingPermissions();
   }
 
   Future<void> _requestNotifications() async {
     final status = await Permission.notification.request();
+    debugPrint('[Onboarding] Notification permission result: ${status.name}');
 
     if (status.isPermanentlyDenied) {
       if (mounted) {
@@ -162,16 +176,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       }
       await openAppSettings();
-      return;
     }
 
-    if (mounted) {
-      setState(() => _notificationsGranted = status.isGranted);
-    }
+    // Always re-check all permissions to sync UI with actual state
+    await _checkExistingPermissions();
   }
 
   Future<void> _requestMicrophone() async {
     final status = await Permission.microphone.request();
+    debugPrint('[Onboarding] Microphone permission result: ${status.name}');
 
     if (status.isPermanentlyDenied) {
       if (mounted) {
@@ -185,12 +198,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       }
       await openAppSettings();
-      return;
     }
 
-    if (mounted) {
-      setState(() => _microphoneGranted = status.isGranted);
-    }
+    // Always re-check all permissions to sync UI with actual state
+    await _checkExistingPermissions();
   }
 
   Future<void> _saveContact() async {
