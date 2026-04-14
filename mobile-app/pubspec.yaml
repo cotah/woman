@@ -1,7 +1,7 @@
 name: safecircle
 description: SafeCircle - Personal Safety Platform
 publish_to: 'none'
-version: 1.0.0+10
+version: 1.0.0+11
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
