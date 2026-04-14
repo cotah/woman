@@ -95,6 +95,10 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Register a new user.
+  ///
+  /// Does NOT set global state to 'loading' — the register screen handles
+  /// its own loading indicator. Setting loading here would trigger the
+  /// router redirect to /splash, breaking the registration flow.
   Future<void> register({
     required String email,
     required String password,
@@ -102,8 +106,6 @@ class AuthService extends ChangeNotifier {
     required String lastName,
     String? phone,
   }) async {
-    _setState(const AuthState.loading());
-
     try {
       final response = await _apiClient.post(
         ApiEndpoints.register,
@@ -129,12 +131,14 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Login with email and password.
+  ///
+  /// Does NOT set global state to 'loading' — the login screen handles
+  /// its own loading indicator. Setting loading here would trigger the
+  /// router redirect to /splash, breaking the login flow.
   Future<void> login({
     required String email,
     required String password,
   }) async {
-    _setState(const AuthState.loading());
-
     try {
       final response = await _apiClient.post(
         ApiEndpoints.login,
