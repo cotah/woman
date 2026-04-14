@@ -39,8 +39,14 @@ class _LoginScreenState extends State<LoginScreen> {
       // Router redirect handles navigation on auth state change.
     } catch (e) {
       if (mounted) {
+        // Show the actual error so we can diagnose iOS-specific issues.
+        final errorMsg = e.toString();
+        debugPrint('[LoginScreen] Login error: $errorMsg');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed. Please try again.')),
+          SnackBar(
+            content: Text('Login failed: $errorMsg'),
+            duration: const Duration(seconds: 8),
+          ),
         );
       }
     } finally {

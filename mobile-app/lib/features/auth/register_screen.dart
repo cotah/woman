@@ -58,8 +58,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Router redirect handles navigation on auth state change.
     } catch (e) {
       if (mounted) {
+        final errorMsg = e.toString();
+        debugPrint('[RegisterScreen] Register error: $errorMsg');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Registration failed. Please try again.')),
+          SnackBar(
+            content: Text('Registration failed: $errorMsg'),
+            duration: const Duration(seconds: 8),
+          ),
         );
       }
     } finally {
