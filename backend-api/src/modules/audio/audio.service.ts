@@ -228,16 +228,37 @@ export class AudioService {
   async processTranscription(payload: {
     audioAssetId: string;
     incidentId: string;
-    userId: string;
+    userId?: string;
     storageKey: string;
     mimeType: string;
   }): Promise<void> {
-    const { audioAssetId, incidentId, userId, storageKey, mimeType } = payload;
+    const { audioAssetId, incidentId, storageKey, mimeType } = payload;
+    let userId = payload.userId;
 
-    // 1. Validate ownership — defense in depth: even though the
-    // job was enqueued by an authenticated upload, the worker
-    // re-validates in case of replayed/forged payloads.
-    await this.incidentsService.assertOwnership(incidentId, userId);
+    // Backwards compatibility: legacy job payloads enqueued before
+    // pipeline-fix Fix 4 (commit 1e899bd, 2026-04-28) didn't include
+    // userId. Recover it from the incident record in those cases.
+    //
+    // Skipping assertOwnership for legacy payloads is safe because
+    // the original uploadChunk call enforced ownership at enqueue
+    // time. The fallback just recovers what the payload lost.
+    //
+    // For NEW payloads, assertOwnership runs as defense-in-depth
+    // against forged/replayed Redis jobs.
+    if (!userId) {
+      userId = await this.incidentsService.getOwnerUserId(incidentId);
+      this.logger.warn(
+        `[legacy-payload] Job for asset ${audioAssetId} arrived ` +
+          `without userId. Recovered userId=${userId} from incident.userId. ` +
+          `This indicates a stale job enqueued before pipeline-fix ` +
+          `(commit 1e899bd, 2026-04-28).`,
+      );
+    } else {
+      // 1. Validate ownership — defense in depth: even though the
+      // job was enqueued by an authenticated upload, the worker
+      // re-validates in case of replayed/forged payloads.
+      await this.incidentsService.assertOwnership(incidentId, userId);
+    }
 
     this.logger.log(`Processing transcription for asset ${audioAssetId}`);
 

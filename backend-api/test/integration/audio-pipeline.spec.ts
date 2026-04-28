@@ -66,6 +66,7 @@ describe('AudioPipeline (processTranscription)', () => {
   // Per-test mocks (re-built in beforeEach so jest.fn() call history
   // is isolated per scenario).
   let assertOwnership: jest.Mock;
+  let getOwnerUserId: jest.Mock;
   let assetCount: jest.Mock;
   let assetUpdate: jest.Mock;
   let dayMinutes: jest.Mock;
@@ -80,6 +81,7 @@ describe('AudioPipeline (processTranscription)', () => {
     jest.clearAllMocks();
 
     assertOwnership = jest.fn().mockResolvedValue(undefined);
+    getOwnerUserId = jest.fn().mockResolvedValue(USER);
     assetCount = jest.fn().mockResolvedValue(0);
     assetUpdate = jest.fn().mockResolvedValue(undefined);
     dayMinutes = jest.fn().mockResolvedValue({ minutes: '0' });
@@ -119,7 +121,7 @@ describe('AudioPipeline (processTranscription)', () => {
     };
     const deepgramProvider: any = { transcribe: deepgramTranscribe };
     const aiClassifier: any = { classifyDistress: aiClassify };
-    const incidentsService: any = { assertOwnership };
+    const incidentsService: any = { assertOwnership, getOwnerUserId };
     const incidentGateway: any = { broadcastTimelineEvent };
 
     audioService = new (AudioService as any)(
@@ -300,6 +302,66 @@ describe('AudioPipeline (processTranscription)', () => {
     expect(aiClassify).not.toHaveBeenCalled();
     expect(assetUpdate).not.toHaveBeenCalled();
     expect(broadcastTimelineEvent).not.toHaveBeenCalled();
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 6. LEGACY PAYLOAD (no userId — enqueued before Fix 4)
+  // ─────────────────────────────────────────────────────────────
+  it('legacy payload: no userId — fallback recovers it from incident, skips assertOwnership, proceeds normally', async () => {
+    deepgramTranscribe.mockResolvedValue({
+      text: 'help me',
+      confidence: 0.92,
+      language: 'en',
+    });
+    aiClassify.mockResolvedValue({
+      isDistress: false,
+      riskLevel: 'none',
+      confidence: 0.8,
+      summary: 'recovered legacy payload',
+      signals: [],
+    });
+    // Logger.warn observable on the service instance (private logger
+    // is a Nest Logger, but its warn method is observable via spy).
+    const warnSpy = jest
+      .spyOn((audioService as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    // Build a payload without userId (the actual Sentry-reported case)
+    const legacyPayload: any = {
+      audioAssetId: ASSET,
+      incidentId: INCIDENT,
+      storageKey: STORAGE_KEY,
+      mimeType: 'audio/webm',
+    };
+
+    await audioService.processTranscription(legacyPayload);
+
+    // Fallback path: getOwnerUserId was used, assertOwnership was NOT
+    expect(getOwnerUserId).toHaveBeenCalledWith(INCIDENT);
+    expect(assertOwnership).not.toHaveBeenCalled();
+
+    // Visible warning so monitoring can spot legacy payload recovery
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[legacy-payload]'),
+    );
+
+    // Pipeline proceeds normally
+    expect(assetUpdate).toHaveBeenCalledWith(ASSET, {
+      transcriptionStatus: TranscriptionStatus.PROCESSING,
+    });
+    expect(assetUpdate).toHaveBeenCalledWith(ASSET, {
+      transcriptionStatus: TranscriptionStatus.COMPLETED,
+    });
+    expect(deepgramTranscribe).toHaveBeenCalled();
+    expect(aiClassify).toHaveBeenCalled();
+    expect(transcriptSave).toHaveBeenCalledTimes(1);
+    expect(broadcastTimelineEvent).toHaveBeenCalledWith(
+      INCIDENT,
+      expect.objectContaining({ type: 'transcription_completed' }),
+    );
+
+    // No cost-cap path triggered
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 

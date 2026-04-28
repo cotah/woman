@@ -575,6 +575,29 @@ export class IncidentsService {
     await this.findOneOrFail(incidentId, userId);
   }
 
+  /**
+   * Returns the userId who owns the incident, without doing
+   * an ownership check (caller doesn't need to know userId
+   * upfront).
+   *
+   * Use cases:
+   * - Audio worker recovering legacy job payload (pipeline-fix
+   *   left some jobs in the queue without userId in payload)
+   *
+   * Throws NotFoundException with the same generic message as
+   * assertOwnership to maintain consistent existence-leak
+   * protection.
+   */
+  async getOwnerUserId(incidentId: string): Promise<string> {
+    const incident = await this.incidentRepo.findOne({
+      where: { id: incidentId },
+    });
+    if (!incident) {
+      throw new NotFoundException(`Incident ${incidentId} not found`);
+    }
+    return incident.userId;
+  }
+
   // ─── Private helpers ──────────────────────────────────────────
 
   private async findOneOrFail(

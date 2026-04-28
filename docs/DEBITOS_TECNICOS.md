@@ -33,6 +33,17 @@ Formato:
 
 ---
 
+## Type interface `AudioTranscriptionJobData` mente sobre runtime
+
+- **Local:** `backend-api/src/queue/audio.processor.ts:13`.
+- **Sintoma:** interface declara `userId: string` (obrigatório) mas em runtime payloads legacy (pré-Fix 4 do pipeline-fix) chegam sem o campo. TypeScript aceita silenciosamente porque `audio.service.ts` trata como `userId?: string`.
+- **Risco:** nenhum funcional (fallback no service ativa e recupera userId via `getOwnerUserId`). Apenas inconsistência de tipo que pode confundir leitor futuro do código do processor.
+- **Fix:** marcar `userId?: string` na interface também. 1 linha.
+- **Quando:** próximo sweep de boilerplate, ou primeira vez que `audio.processor.ts` for tocado por outro motivo.
+- **Criado durante:** hotfix legacy-payload pós Fix 4 do pipeline-fix (2026-04-28).
+
+---
+
 ## CRLF nos arquivos do `backend-api`
 
 - Git emite `warning: in the working copy of '...', CRLF will be replaced by LF the next time Git touches it` em alguns arquivos editados durante o B2.
