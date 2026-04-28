@@ -6,7 +6,13 @@ import { AudioService } from '@/modules/audio/audio.service';
 export interface AudioTranscriptionJobData {
   audioAssetId: string;
   incidentId: string;
-  userId: string;
+  /**
+   * Optional because legacy job payloads enqueued before
+   * pipeline-fix Fix 4 (commit 1e899bd, 2026-04-28) lack
+   * this field. AudioService.processTranscription handles
+   * the missing case via getOwnerUserId fallback.
+   */
+  userId?: string;
   storageKey: string;
   mimeType: string;
 }

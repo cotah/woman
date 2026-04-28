@@ -1,1 +1,20 @@
+# Auto-detect text files; normalize line endings to LF.
+# Binary files are detected by Git automatically and not affected.
 * text=auto eol=lf
+
+# Explicit binary types (defensive — git usually detects but pin these)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
