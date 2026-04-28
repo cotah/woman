@@ -33,17 +33,6 @@ Formato:
 
 ---
 
-## Type interface `AudioTranscriptionJobData` mente sobre runtime
-
-- **Local:** `backend-api/src/queue/audio.processor.ts:13`.
-- **Sintoma:** interface declara `userId: string` (obrigatório) mas em runtime payloads legacy (pré-Fix 4 do pipeline-fix) chegam sem o campo. TypeScript aceita silenciosamente porque `audio.service.ts` trata como `userId?: string`.
-- **Risco:** nenhum funcional (fallback no service ativa e recupera userId via `getOwnerUserId`). Apenas inconsistência de tipo que pode confundir leitor futuro do código do processor.
-- **Fix:** marcar `userId?: string` na interface também. 1 linha.
-- **Quando:** próximo sweep de boilerplate, ou primeira vez que `audio.processor.ts` for tocado por outro motivo.
-- **Criado durante:** hotfix legacy-payload pós Fix 4 do pipeline-fix (2026-04-28).
-
----
-
 ## Audio pipeline retry duplica side effects
 
 - **Local:** `backend-api/src/modules/audio/audio.service.ts` `processTranscription`.
@@ -55,17 +44,6 @@ Formato:
 - **Fix proposto:** unique constraint em `incident_transcripts.audio_asset_id` (1 transcript por chunk = invariante natural). Migration nova. Como bonus, o engine também ganharia dedup natural se aceitar dedup por `(incidentId, signal.type, payload.audioAssetId)` para signals `oncePerIncident:false` — mudança opcional.
 - **Esforço estimado:** 1-2h para migration + ajuste de upsert no service. Testes precisam de cenário de retry.
 - **Criado durante:** Bug 8.a fix (2026-04-28). Aceito como débito porque resolver direito exige migration de schema fora do escopo do 8.a.
-
----
-
-## CRLF nos arquivos do `backend-api`
-
-- Git emite `warning: in the working copy of '...', CRLF will be replaced by LF the next time Git touches it` em alguns arquivos editados durante o B2.
-- Indica inconsistência de line endings entre Windows (CRLF) e a normalização do repo (LF).
-- Não causa erro, mas suja diffs e pode confundir blame em futuras edições.
-- **Fix:** adicionar `.gitattributes` com `* text=auto eol=lf` (ou normalizar manualmente com `git add --renormalize .`).
-- **Esforço estimado:** 15min.
-- **Criado durante:** commits do B2 (2026-04-28).
 
 ---
 
@@ -92,3 +70,15 @@ Formato:
 - **Registrado em:** `7e4d54a` (durante B2, 2026-04-28).
 - **Resolvido em:** `1e899bd` (Fix 4 do pipeline-fix, 2026-04-28).
 - **Como:** refatoração do `AudioProcessor` para delegar ao service. `processTranscription` deixou de ser órfão e virou caller principal do pipeline (chamada pelo worker BullMQ a cada job da fila `audio-processing`). JSDoc reescrito; tag `@deprecated` removida.
+
+### Type interface `AudioTranscriptionJobData` mente sobre runtime
+
+- **Registrado em:** `e821ddb` (hotfix legacy-payload pós Fix 4 do pipeline-fix, 2026-04-28).
+- **Resolvido em:** `1ab49e5` (cleanup batch 1, 2026-04-28).
+- **Como:** `userId` marcado como opcional (`userId?: string`) na interface em `backend-api/src/queue/audio.processor.ts`, alinhando com a realidade de runtime onde payloads legacy podem chegar sem o campo. JSDoc adicionado referenciando o commit do hotfix e explicando o fallback via `getOwnerUserId`.
+
+### CRLF nos arquivos do `backend-api`
+
+- **Registrado em:** B2 commits (`038340a..9805178`, 2026-04-28).
+- **Resolvido em:** `1ab49e5` (cleanup batch 1, 2026-04-28).
+- **Como:** `.gitattributes` expandido com lista explícita de binary types (`*.png`, `*.jpg`, `*.mp3`, etc.) além da regra base `* text=auto eol=lf` que já existia desde 2026-04-13. `git add --renormalize .` confirmou que o índice já estava consistente — nenhum arquivo tracked foi tocado, o que valida que os warnings eram apenas cosméticos do working copy local.
