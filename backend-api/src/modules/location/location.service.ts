@@ -106,33 +106,6 @@ export class LocationService {
     return qb.getMany();
   }
 
-  /**
-   * Get the latest location for an incident.
-   *
-   * @deprecated NO CALLERS — investigation pending.
-   * No callers in src/. Not exposed by location.controller.ts.
-   *
-   * TODO(B2-followup): determine if this is dead code or a
-   * latent wiring bug. Investigate alongside processTranscription
-   * (audio.service.ts) — both have the same pattern.
-   *
-   * Not in scope of B2 (no public endpoint exposes this method),
-   * but kept secure-by-default with assertOwnership in case it
-   * ever gets wired up to a future endpoint.
-   */
-  async getLatestLocation(
-    incidentId: string,
-    userId: string,
-  ): Promise<IncidentLocation | null> {
-    // IDOR fix B2 — validate ownership before any operation
-    await this.incidentsService.assertOwnership(incidentId, userId);
-
-    return this.locationRepo.findOne({
-      where: { incidentId },
-      order: { timestamp: 'DESC' },
-    });
-  }
-
   // ------------------------------------------------------------------
   // Private helpers
   // ------------------------------------------------------------------
