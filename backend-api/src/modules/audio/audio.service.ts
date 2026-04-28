@@ -10,8 +10,8 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { AudioAsset } from './entities/audio-asset.entity';
-import { Transcript } from './entities/transcript.entity';
+import { IncidentAudioAsset, TranscriptionStatus } from './entities/incident-audio-asset.entity';
+import { IncidentTranscript } from './entities/incident-transcript.entity';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { AiClassifierProvider } from './providers/ai-classifier.provider';
 import { IncidentsService } from '../incidents/incidents.service';
@@ -23,10 +23,10 @@ export class AudioService {
   private readonly bucketName: string;
 
   constructor(
-    @InjectRepository(AudioAsset)
-    private readonly audioAssetRepo: Repository<AudioAsset>,
-    @InjectRepository(Transcript)
-    private readonly transcriptRepo: Repository<Transcript>,
+    @InjectRepository(IncidentAudioAsset)
+    private readonly audioAssetRepo: Repository<IncidentAudioAsset>,
+    @InjectRepository(IncidentTranscript)
+    private readonly transcriptRepo: Repository<IncidentTranscript>,
     @InjectQueue('audio-processing')
     private readonly audioQueue: Queue,
     private readonly config: ConfigService,
@@ -65,7 +65,7 @@ export class AudioService {
     userId: string,
     file: Express.Multer.File,
     durationSeconds: number,
-  ): Promise<AudioAsset> {
+  ): Promise<IncidentAudioAsset> {
     // IDOR fix B2 — validate ownership before any operation
     await this.incidentsService.assertOwnership(incidentId, userId);
 
@@ -90,7 +90,7 @@ export class AudioService {
       storageKey,
       mimeType: file.mimetype || 'audio/webm',
       sizeBytes: file.size,
-      transcriptionStatus: 'pending',
+      transcriptionStatus: TranscriptionStatus.PENDING,
     });
 
     const saved = await this.audioAssetRepo.save(asset);
@@ -134,7 +134,7 @@ export class AudioService {
   /**
    * List all audio chunks for an incident.
    */
-  async listChunks(incidentId: string, userId: string): Promise<AudioAsset[]> {
+  async listChunks(incidentId: string, userId: string): Promise<IncidentAudioAsset[]> {
     // IDOR fix B2 — validate ownership before any operation
     await this.incidentsService.assertOwnership(incidentId, userId);
 
@@ -182,7 +182,7 @@ export class AudioService {
   async getTranscripts(
     incidentId: string,
     userId: string,
-  ): Promise<Transcript[]> {
+  ): Promise<IncidentTranscript[]> {
     // IDOR fix B2 — validate ownership before any operation
     await this.incidentsService.assertOwnership(incidentId, userId);
 
@@ -222,7 +222,7 @@ export class AudioService {
 
     // Update status to processing
     await this.audioAssetRepo.update(audioAssetId, {
-      transcriptionStatus: 'processing',
+      transcriptionStatus: TranscriptionStatus.PROCESSING,
     });
 
     try {
@@ -238,7 +238,7 @@ export class AudioService {
       if (!transcriptionResult.text || transcriptionResult.text.trim().length === 0) {
         this.logger.log(`No speech detected in asset ${audioAssetId}`);
         await this.audioAssetRepo.update(audioAssetId, {
-          transcriptionStatus: 'completed',
+          transcriptionStatus: TranscriptionStatus.COMPLETED,
         });
         return;
       }
@@ -269,7 +269,7 @@ export class AudioService {
 
       // Update asset status
       await this.audioAssetRepo.update(audioAssetId, {
-        transcriptionStatus: 'completed',
+        transcriptionStatus: TranscriptionStatus.COMPLETED,
       });
 
       // Create incident event
@@ -305,7 +305,7 @@ export class AudioService {
       );
 
       await this.audioAssetRepo.update(audioAssetId, {
-        transcriptionStatus: 'failed',
+        transcriptionStatus: TranscriptionStatus.FAILED,
       });
 
       await this.createIncidentEvent(incidentId, 'ai_analysis_result', {

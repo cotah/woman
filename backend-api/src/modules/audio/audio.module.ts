@@ -5,8 +5,8 @@ import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AudioController } from './audio.controller';
 import { AudioService } from './audio.service';
-import { AudioAsset } from './entities/audio-asset.entity';
-import { Transcript } from './entities/transcript.entity';
+import { IncidentAudioAsset } from './entities/incident-audio-asset.entity';
+import { IncidentTranscript } from './entities/incident-transcript.entity';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { AiClassifierProvider } from './providers/ai-classifier.provider';
 // IDOR fix B2 — needed for IncidentsService.assertOwnership
@@ -14,7 +14,7 @@ import { IncidentsModule } from '../incidents/incidents.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AudioAsset, Transcript]),
+    TypeOrmModule.forFeature([IncidentAudioAsset, IncidentTranscript]),
     BullModule.registerQueue({ name: 'audio-processing' }),
     MulterModule.register({
       storage: memoryStorage(),

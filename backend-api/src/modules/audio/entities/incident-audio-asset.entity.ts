@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Incident } from '@/modules/incidents/entities/incident.entity';
 
@@ -16,6 +17,7 @@ export enum TranscriptionStatus {
 }
 
 @Entity('incident_audio_assets')
+@Index('idx_audio_assets_incident', ['incidentId', 'chunkIndex'])
 export class IncidentAudioAsset {
   @PrimaryGeneratedColumn('uuid')
   id: string;

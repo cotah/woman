@@ -54,3 +54,9 @@ Formato:
 - **Fix:** adicionar `.gitattributes` com `* text=auto eol=lf` (ou normalizar manualmente com `git add --renormalize .`).
 - **Esforço estimado:** 15min.
 - **Criado durante:** commits do B2 (2026-04-28).
+
+---
+
+## Notas de processo (acumular conforme surgem)
+
+- 2026-04-28 (durante Fix 1 do pipeline de áudio): ao consolidar entities, verificar não só imports do TYPE mas também usos como VALOR LITERAL (ex: `transcriptionStatus: 'pending'` quebra com enum strict-typed mesmo sem importar o type).

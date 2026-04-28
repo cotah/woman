@@ -5,11 +5,14 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Incident } from '@/modules/incidents/entities/incident.entity';
 import { IncidentAudioAsset } from './incident-audio-asset.entity';
 
 @Entity('incident_transcripts')
+@Index('idx_transcripts_incident', ['incidentId'])
+@Index('idx_transcripts_audio', ['audioAssetId'])
 export class IncidentTranscript {
   @PrimaryGeneratedColumn('uuid')
   id: string;
