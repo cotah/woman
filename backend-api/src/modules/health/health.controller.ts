@@ -1,7 +1,8 @@
-import { Controller, Get, SetMetadata } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, SetMetadata, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { IS_PUBLIC_KEY } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../admin/guards/admin.guard';
 import { HealthService, HealthReport } from './health.service';
 
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
@@ -30,10 +31,13 @@ export class HealthController {
   /**
    * GET /health/pilot
    * Pilot testing endpoint: reports which providers are configured vs dry-run.
-   * Requires auth (not public) so only logged-in testers can see this.
+   * Restricted to admin/super_admin — leaks which third-party services are
+   * wired up (Twilio, Firebase, Deepgram, OpenAI), which is reconnaissance
+   * material for an attacker if exposed publicly.
    */
   @Get('pilot')
-  @Public()
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Pilot readiness: provider configuration status' })
   getPilotReadiness() {
     const twilioSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
