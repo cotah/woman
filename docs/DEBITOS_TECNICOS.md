@@ -23,19 +23,6 @@ Formato:
 
 ---
 
-## `processTranscription` em `audio.service.ts:171` — método público sem callers
-
-- Definido em `src/modules/audio/audio.service.ts:171`. Grep em `src/`: zero callers.
-- O worker de fila (`src/queue/audio.processor.ts`) faz transcrição em paralelo, contra entidade diferente (`IncidentAudioAsset`, não `AudioAsset`). Pode ser dead code ou wire faltando.
-- **Não está exposto por endpoint** — fora do raio de IDOR. Marcado `@deprecated` durante o B2.
-- **Fix:**
-  - (a) Se for dead code: remover. Atenção a entidades/tabelas que só esse caminho usaria.
-  - (b) Se for wire faltando: rotear `audio.processor.ts` para chamar este service em vez de duplicar lógica.
-- **Esforço estimado:** 30min investigação + 1–4h dependendo do caminho.
-- **Criado durante:** investigação do Passo 3 do B2 (commit `02fd788`, 2026-04-28).
-
----
-
 ## `getLatestLocation` em `location.service.ts:147` — método público sem callers
 
 - Mesmo padrão do `processTranscription`. Sem callers em `src/`. Não exposto por `location.controller.ts`.
@@ -70,3 +57,13 @@ Formato:
 ## Notas de processo (acumular conforme surgem)
 
 - 2026-04-28 (durante Fix 1 do pipeline de áudio): ao consolidar entities, verificar não só imports do TYPE mas também usos como VALOR LITERAL (ex: `transcriptionStatus: 'pending'` quebra com enum strict-typed mesmo sem importar o type).
+
+---
+
+## Resolvidos
+
+### processTranscription órfão (B2 follow-up)
+
+- **Registrado em:** `7e4d54a` (durante B2, 2026-04-28).
+- **Resolvido em:** `1e899bd` (Fix 4 do pipeline-fix, 2026-04-28).
+- **Como:** refatoração do `AudioProcessor` para delegar ao service. `processTranscription` deixou de ser órfão e virou caller principal do pipeline (chamada pelo worker BullMQ a cada job da fila `audio-processing`). JSDoc reescrito; tag `@deprecated` removida.
