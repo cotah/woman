@@ -19,10 +19,12 @@ import {
   ApiConsumes,
   ApiBody,
   ApiResponse,
-  ApiQuery,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { AudioService } from './audio.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../common/interfaces/request-context';
 
 const MAX_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_MIMES = [
@@ -36,6 +38,7 @@ const ALLOWED_MIMES = [
 ];
 
 @ApiTags('Audio')
+@ApiBearerAuth()
 @SkipThrottle() // Safety-critical: audio uploads during emergencies must never be blocked
 @Controller('incidents')
 export class AudioController {
@@ -84,6 +87,7 @@ export class AudioController {
   @ApiResponse({ status: 400, description: 'Invalid file or missing parameters' })
   async uploadChunk(
     @Param('id', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: Express.Multer.File,
     @Query('duration') durationStr?: string,
   ) {
@@ -96,7 +100,12 @@ export class AudioController {
       throw new BadRequestException('Valid duration parameter is required');
     }
 
-    const asset = await this.audioService.uploadChunk(incidentId, file, duration);
+    const asset = await this.audioService.uploadChunk(
+      incidentId,
+      user.id,
+      file,
+      duration,
+    );
 
     return {
       id: asset.id,
@@ -118,8 +127,11 @@ export class AudioController {
   @ApiOperation({ summary: 'List audio chunks for an incident' })
   @ApiParam({ name: 'id', description: 'Incident ID', type: 'string' })
   @ApiResponse({ status: 200, description: 'List of audio chunks' })
-  async listChunks(@Param('id', ParseUUIDPipe) incidentId: string) {
-    const chunks = await this.audioService.listChunks(incidentId);
+  async listChunks(
+    @Param('id', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const chunks = await this.audioService.listChunks(incidentId, user.id);
 
     return chunks.map((chunk) => ({
       id: chunk.id,
@@ -142,10 +154,15 @@ export class AudioController {
   @ApiParam({ name: 'assetId', description: 'Audio asset ID', type: 'string' })
   @ApiResponse({ status: 200, description: 'Pre-signed download URL' })
   async getDownloadUrl(
-    @Param('id', ParseUUIDPipe) _incidentId: string,
+    @Param('id', ParseUUIDPipe) incidentId: string,
     @Param('assetId', ParseUUIDPipe) assetId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    const url = await this.audioService.getDownloadUrl(assetId);
+    const url = await this.audioService.getDownloadUrl(
+      incidentId,
+      user.id,
+      assetId,
+    );
     return { url };
   }
 
@@ -157,7 +174,10 @@ export class AudioController {
   @ApiOperation({ summary: 'List transcripts for an incident' })
   @ApiParam({ name: 'id', description: 'Incident ID', type: 'string' })
   @ApiResponse({ status: 200, description: 'List of transcripts' })
-  async getTranscripts(@Param('id', ParseUUIDPipe) incidentId: string) {
-    return this.audioService.getTranscripts(incidentId);
+  async getTranscripts(
+    @Param('id', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.audioService.getTranscripts(incidentId, user.id);
   }
 }

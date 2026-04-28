@@ -42,6 +42,11 @@ describe('IDOR — audio + location ownership (B2)', () => {
   const USER_A = '11111111-1111-1111-1111-111111111111';
   const USER_B = '22222222-2222-2222-2222-222222222222';
   const A_INCIDENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  // Second incident also owned by user A — used for the cross-incident
+  // asset attack (scenario 9). User A asks for an asset of incident X
+  // through the URL of incident Y (both are theirs); without the cross-
+  // check, the service would happily serve it.
+  const A_INCIDENT_ID_Y = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
   const A_AUDIO_ASSET_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
   let audioService: AudioService;
@@ -49,11 +54,13 @@ describe('IDOR — audio + location ownership (B2)', () => {
   let assertOwnership: jest.Mock;
 
   beforeEach(() => {
-    // Pretend the DB has one incident, owned by user A.
+    // Pretend the DB has two incidents, both owned by user A.
+    // (User A having multiple incidents is the precondition for
+    // the cross-incident asset attack in scenario 9.)
     const mockIncidentRepo = {
       findOne: jest.fn().mockImplementation(({ where }: any) => {
-        if (where.id === A_INCIDENT_ID) {
-          return Promise.resolve({ id: A_INCIDENT_ID, userId: USER_A });
+        if (where.id === A_INCIDENT_ID || where.id === A_INCIDENT_ID_Y) {
+          return Promise.resolve({ id: where.id, userId: USER_A });
         }
         return Promise.resolve(null);
       }),
@@ -83,6 +90,9 @@ describe('IDOR — audio + location ownership (B2)', () => {
     // the vulnerability instead of accidentally passing because some
     // unrelated lookup happened to return null.
     //   - asset lookup ({where:{id}})         → return a valid asset
+    //                                           always pinned to incident X
+    //                                           (so scenario 9 can attack
+    //                                           it from incident Y)
     //   - last-chunk lookup ({where:{incidentId}}) → return null
     const audioAssetRepo: any = {
       findOne: jest.fn().mockImplementation(({ where }: any) => {
@@ -205,6 +215,31 @@ describe('IDOR — audio + location ownership (B2)', () => {
     it('GET /incidents/:id/locations — getLocationTrail must reject with 404', async () => {
       await expect(
         (locationService as any).getLocationTrail(A_INCIDENT_ID, USER_B),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // CROSS-INCIDENT ASSET — defense in depth
+  // ─────────────────────────────────────────────────────────────
+  describe('cross-incident asset access — owner abuses incident URL mismatch', () => {
+    it('should not allow user to download asset from a different own-incident via cross-incident asset id', async () => {
+      // User A owns both incident X (A_INCIDENT_ID, where the asset
+      // lives) and incident Y (A_INCIDENT_ID_Y, empty). The attacker
+      // is user A themselves, abusing the URL routing:
+      //   GET /incidents/{Y}/audio/{asset-of-X}/download
+      // assertOwnership(Y, A) succeeds because A owns Y. Without the
+      // cross-check `asset.incidentId === incidentId`, the service
+      // would emit a presigned URL for an asset that isn't on Y.
+      // The cross-check must reject this with NotFoundException using
+      // the same message as "asset truly does not exist", so neither
+      // status nor body discloses that the asset exists elsewhere.
+      await expect(
+        (audioService as any).getDownloadUrl(
+          A_INCIDENT_ID_Y, // incident Y in URL...
+          USER_A,
+          A_AUDIO_ASSET_ID, // ...but asset belongs to incident X
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });

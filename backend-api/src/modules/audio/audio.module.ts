@@ -9,6 +9,8 @@ import { AudioAsset } from './entities/audio-asset.entity';
 import { Transcript } from './entities/transcript.entity';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { AiClassifierProvider } from './providers/ai-classifier.provider';
+// IDOR fix B2 — needed for IncidentsService.assertOwnership
+import { IncidentsModule } from '../incidents/incidents.module';
 
 @Module({
   imports: [
@@ -17,6 +19,7 @@ import { AiClassifierProvider } from './providers/ai-classifier.provider';
     MulterModule.register({
       storage: memoryStorage(),
     }),
+    IncidentsModule,
   ],
   controllers: [AudioController],
   providers: [AudioService, DeepgramProvider, AiClassifierProvider],

@@ -14,6 +14,7 @@ import { AudioAsset } from './entities/audio-asset.entity';
 import { Transcript } from './entities/transcript.entity';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { AiClassifierProvider } from './providers/ai-classifier.provider';
+import { IncidentsService } from '../incidents/incidents.service';
 
 @Injectable()
 export class AudioService {
@@ -31,6 +32,8 @@ export class AudioService {
     private readonly config: ConfigService,
     private readonly deepgramProvider: DeepgramProvider,
     private readonly aiClassifier: AiClassifierProvider,
+    // IDOR fix B2 — needed to call assertOwnership before any operation
+    private readonly incidentsService: IncidentsService,
   ) {
     this.bucketName = this.config.get<string>('S3_AUDIO_BUCKET', 'safecircle-audio');
 
@@ -59,9 +62,13 @@ export class AudioService {
    */
   async uploadChunk(
     incidentId: string,
+    userId: string,
     file: Express.Multer.File,
     durationSeconds: number,
   ): Promise<AudioAsset> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     // Determine chunk index (next in sequence)
     const lastChunk = await this.audioAssetRepo.findOne({
       where: { incidentId },
@@ -127,7 +134,10 @@ export class AudioService {
   /**
    * List all audio chunks for an incident.
    */
-  async listChunks(incidentId: string): Promise<AudioAsset[]> {
+  async listChunks(incidentId: string, userId: string): Promise<AudioAsset[]> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     return this.audioAssetRepo.find({
       where: { incidentId },
       order: { chunkIndex: 'ASC' },
@@ -137,9 +147,24 @@ export class AudioService {
   /**
    * Get a pre-signed URL for downloading an audio chunk.
    */
-  async getDownloadUrl(assetId: string): Promise<string> {
+  async getDownloadUrl(
+    incidentId: string,
+    userId: string,
+    assetId: string,
+  ): Promise<string> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     const asset = await this.audioAssetRepo.findOne({ where: { id: assetId } });
-    if (!asset) {
+
+    // IDOR cross-check B2 — verify asset belongs to the asserted incident,
+    // not just any incident the user owns. Without this, an attacker who
+    // owns incident X could request /incidents/X/audio/{Y}/download where
+    // Y is an asset id of someone else's incident; assertOwnership(X, user)
+    // passes, the asset loads, and a presigned URL is emitted. Same
+    // NotFoundException + same message as "asset truly does not exist"
+    // so neither status nor body discloses cross-incident existence.
+    if (!asset || asset.incidentId !== incidentId) {
       throw new NotFoundException(`Audio asset ${assetId} not found`);
     }
 
@@ -154,7 +179,13 @@ export class AudioService {
   /**
    * Get transcripts for an incident.
    */
-  async getTranscripts(incidentId: string): Promise<Transcript[]> {
+  async getTranscripts(
+    incidentId: string,
+    userId: string,
+  ): Promise<Transcript[]> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     return this.transcriptRepo.find({
       where: { incidentId },
       order: { createdAt: 'ASC' },
@@ -167,6 +198,17 @@ export class AudioService {
 
   /**
    * Process a transcription job. Called by the BullMQ worker.
+   *
+   * @deprecated NO CALLERS — investigation pending.
+   * This method has no callers in src/. The audio queue worker
+   * (audio.processor.ts) does its own transcription against a
+   * different entity (IncidentAudioAsset, not AudioAsset).
+   *
+   * TODO(B2-followup): determine if this is dead code or a
+   * latent wiring bug. If dead code, remove. If bug, route the
+   * processor to call this service.
+   *
+   * Not in scope of B2 (no public endpoint exposes this method).
    */
   async processTranscription(payload: {
     audioAssetId: string;
