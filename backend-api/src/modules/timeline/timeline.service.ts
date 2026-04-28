@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Incident } from '../incidents/entities/incident.entity';
@@ -61,12 +61,9 @@ export class TimelineService {
       where: { id: incidentId },
     });
 
-    if (!incident) {
+    // security: unified to 404 to prevent existence leak (B2)
+    if (!incident || incident.userId !== userId) {
       throw new NotFoundException(`Incident ${incidentId} not found`);
-    }
-
-    if (incident.userId !== userId) {
-      throw new ForbiddenException('You do not have access to this incident');
     }
 
     // Fetch all data sources in parallel

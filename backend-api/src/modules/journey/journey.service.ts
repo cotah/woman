@@ -2,7 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -125,12 +124,9 @@ export class JourneyService {
       where: { id: journeyId },
     });
 
-    if (!journey) {
+    // security: unified to 404 to prevent existence leak (B2)
+    if (!journey || journey.userId !== userId) {
       throw new NotFoundException(`Journey ${journeyId} not found`);
-    }
-
-    if (journey.userId !== userId) {
-      throw new ForbiddenException('You do not have access to this journey');
     }
 
     return journey;

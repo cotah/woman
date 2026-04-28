@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException, ForbiddenException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { TimelineService, TimelineEntry } from '../../src/modules/timeline/timeline.service';
 import { Incident, RiskLevel } from '../../src/modules/incidents/entities/incident.entity';
 import { IncidentEvent, IncidentEventType } from '../../src/modules/incidents/entities/incident-event.entity';
@@ -286,7 +286,10 @@ describe('Timeline Generation (Integration)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw ForbiddenException for wrong user', async () => {
+    // B2: unified ownership errors to 404 across the codebase
+    // to prevent UUID enumeration attacks. A wrong-user request
+    // is now indistinguishable from a non-existent incident.
+    it('should not leak incident existence to wrong user', async () => {
       mockIncidentRepo.findOne.mockResolvedValue({
         ...mockIncident,
         userId: 'other-user',
@@ -294,7 +297,7 @@ describe('Timeline Generation (Integration)', () => {
 
       await expect(
         timelineService.getTimeline('inc-1', 'user-1'),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

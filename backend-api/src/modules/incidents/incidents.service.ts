@@ -2,7 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -563,6 +562,19 @@ export class IncidentsService {
     return qb.getMany();
   }
 
+  /**
+   * Asserts that the given incident exists and belongs to the user.
+   * Throws NotFoundException if either condition fails.
+   *
+   * Used by external services (audio, location) to enforce ownership
+   * before any operation on an incident's nested resources.
+   *
+   * IDOR fix B2 — validate ownership from outside IncidentsService.
+   */
+  async assertOwnership(incidentId: string, userId: string): Promise<void> {
+    await this.findOneOrFail(incidentId, userId);
+  }
+
   // ─── Private helpers ──────────────────────────────────────────
 
   private async findOneOrFail(
@@ -573,12 +585,12 @@ export class IncidentsService {
       where: { id: incidentId },
     });
 
-    if (!incident) {
+    // security: unified to 404 to prevent existence leak (B2)
+    // A 403 distinct from 404 lets an attacker enumerate UUIDs
+    // (different status confirms the incident exists). For an
+    // app handling domestic-violence incidents, that is unacceptable.
+    if (!incident || incident.userId !== userId) {
       throw new NotFoundException(`Incident ${incidentId} not found`);
-    }
-
-    if (incident.userId !== userId) {
-      throw new ForbiddenException('You do not have access to this incident');
     }
 
     return incident;
