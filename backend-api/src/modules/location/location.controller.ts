@@ -15,6 +15,7 @@ import {
   ApiParam,
   ApiResponse,
   ApiQuery,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import {
@@ -28,6 +29,8 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { LocationService } from './location.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../common/interfaces/request-context';
 
 export class CreateLocationDto {
   @ApiProperty({ description: 'Latitude', example: 48.8566 })
@@ -85,6 +88,7 @@ export class CreateLocationDto {
 }
 
 @ApiTags('Location')
+@ApiBearerAuth()
 @SkipThrottle() // Safety-critical: location updates during emergencies must never be blocked
 @Controller('incidents')
 export class LocationController {
@@ -101,9 +105,14 @@ export class LocationController {
   @ApiResponse({ status: 201, description: 'Location recorded' })
   async addLocation(
     @Param('id', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateLocationDto,
   ) {
-    const location = await this.locationService.addLocation(incidentId, dto);
+    const location = await this.locationService.addLocation(
+      incidentId,
+      user.id,
+      dto,
+    );
 
     return {
       id: location.id,
@@ -130,11 +139,16 @@ export class LocationController {
   @ApiResponse({ status: 201, description: 'Locations recorded' })
   async addLocationBatch(
     @Param('id', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dtos: CreateLocationDto[],
   ) {
     const results = [];
     for (const dto of dtos) {
-      const location = await this.locationService.addLocation(incidentId, dto);
+      const location = await this.locationService.addLocation(
+        incidentId,
+        user.id,
+        dto,
+      );
       results.push({
         id: location.id,
         latitude: location.latitude,
@@ -162,6 +176,7 @@ export class LocationController {
   @ApiResponse({ status: 200, description: 'Location trail' })
   async getLocations(
     @Param('id', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('limit') limitStr?: string,
     @Query('since') sinceStr?: string,
   ) {
@@ -170,6 +185,7 @@ export class LocationController {
 
     const locations = await this.locationService.getLocationTrail(
       incidentId,
+      user.id,
       { limit, since },
     );
 

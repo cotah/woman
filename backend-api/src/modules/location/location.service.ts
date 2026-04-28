@@ -1,53 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-
-/**
- * We use a lightweight entity inline here since the location module
- * is self-contained. The entity maps to the incident_locations table.
- */
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  Index,
-} from 'typeorm';
-
-@Entity('incident_locations')
-@Index('idx_incident_locations_incident', ['incidentId', 'timestamp'])
-export class IncidentLocation {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column({ name: 'incident_id', type: 'uuid' })
-  incidentId: string;
-
-  @Column({ type: 'double precision' })
-  latitude: number;
-
-  @Column({ type: 'double precision' })
-  longitude: number;
-
-  @Column({ type: 'double precision', nullable: true })
-  accuracy: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  speed: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  heading: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  altitude: number | null;
-
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  provider: string | null;
-
-  @Column({ type: 'timestamptz', default: () => 'NOW()' })
-  timestamp: Date;
-}
-
-export { IncidentLocation as IncidentLocationEntity };
+import { IncidentLocation } from '../incidents/entities/incident-location.entity';
+import { IncidentsService } from '../incidents/incidents.service';
 
 export interface CreateLocationDto {
   latitude: number;
@@ -67,6 +22,8 @@ export class LocationService {
   constructor(
     @InjectRepository(IncidentLocation)
     private readonly locationRepo: Repository<IncidentLocation>,
+    // IDOR fix B2 — needed to call assertOwnership before any operation
+    private readonly incidentsService: IncidentsService,
   ) {}
 
   /**
@@ -75,8 +32,12 @@ export class LocationService {
    */
   async addLocation(
     incidentId: string,
+    userId: string,
     dto: CreateLocationDto,
   ): Promise<IncidentLocation> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     const timestamp = dto.timestamp ? new Date(dto.timestamp) : new Date();
 
     const location = this.locationRepo.create({
@@ -123,8 +84,12 @@ export class LocationService {
    */
   async getLocationTrail(
     incidentId: string,
+    userId: string,
     options?: { limit?: number; since?: Date },
   ): Promise<IncidentLocation[]> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     const qb = this.locationRepo
       .createQueryBuilder('loc')
       .where('loc.incident_id = :incidentId', { incidentId })
@@ -143,10 +108,25 @@ export class LocationService {
 
   /**
    * Get the latest location for an incident.
+   *
+   * @deprecated NO CALLERS — investigation pending.
+   * No callers in src/. Not exposed by location.controller.ts.
+   *
+   * TODO(B2-followup): determine if this is dead code or a
+   * latent wiring bug. Investigate alongside processTranscription
+   * (audio.service.ts) — both have the same pattern.
+   *
+   * Not in scope of B2 (no public endpoint exposes this method),
+   * but kept secure-by-default with assertOwnership in case it
+   * ever gets wired up to a future endpoint.
    */
   async getLatestLocation(
     incidentId: string,
+    userId: string,
   ): Promise<IncidentLocation | null> {
+    // IDOR fix B2 — validate ownership before any operation
+    await this.incidentsService.assertOwnership(incidentId, userId);
+
     return this.locationRepo.findOne({
       where: { incidentId },
       order: { timestamp: 'DESC' },
