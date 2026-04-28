@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
@@ -10,11 +10,13 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import * as Sentry from '@sentry/nestjs';
 import { IncidentAudioAsset, TranscriptionStatus } from './entities/incident-audio-asset.entity';
 import { IncidentTranscript } from './entities/incident-transcript.entity';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { AiClassifierProvider } from './providers/ai-classifier.provider';
 import { IncidentsService } from '../incidents/incidents.service';
+import { IncidentGateway } from '../../websocket/incident.gateway';
 
 @Injectable()
 export class AudioService {
@@ -34,6 +36,10 @@ export class AudioService {
     private readonly aiClassifier: AiClassifierProvider,
     // IDOR fix B2 — needed to call assertOwnership before any operation
     private readonly incidentsService: IncidentsService,
+    // Pipeline-fix Fix 4 — emit real-time WebSocket events when a
+    // transcription completes (migrated from the worker, which
+    // previously held this responsibility).
+    private readonly incidentGateway: IncidentGateway,
   ) {
     this.bucketName = this.config.get<string>('S3_AUDIO_BUCKET', 'safecircle-audio');
 
@@ -104,11 +110,15 @@ export class AudioService {
     });
 
     // Queue transcription job
+    // Pipeline-fix Fix 4 — userId is now part of the payload so
+    // processTranscription can re-validate ownership and tag
+    // Sentry events with the offending user when cost caps fire.
     await this.audioQueue.add(
       'transcribe',
       {
         audioAssetId: saved.id,
         incidentId,
+        userId,
         storageKey,
         mimeType: file.mimetype,
       },
@@ -193,49 +203,126 @@ export class AudioService {
   }
 
   // ------------------------------------------------------------------
-  // Transcription pipeline (called by queue processor)
+  // Transcription pipeline (called by AudioProcessor queue worker)
   // ------------------------------------------------------------------
 
   /**
-   * Process a transcription job. Called by the BullMQ worker.
+   * Process a transcription job. Called by AudioProcessor worker
+   * after a chunk is uploaded and enqueued.
    *
-   * @deprecated NO CALLERS — investigation pending.
-   * This method has no callers in src/. The audio queue worker
-   * (audio.processor.ts) does its own transcription against a
-   * different entity (IncidentAudioAsset, not AudioAsset).
+   * Pipeline:
+   * 1. Validate ownership of the incident
+   * 2. Check cost caps (per-incident and per-day)
+   * 3. Mark asset as PROCESSING
+   * 4. Download audio from S3/R2
+   * 5. Transcribe via Deepgram
+   * 6. Classify distress signals via OpenAI
+   * 7. Persist transcript with AI summary and risk indicators
+   * 8. Mark asset as COMPLETED
+   * 9. Create timeline events and broadcast real-time updates
    *
-   * TODO(B2-followup): determine if this is dead code or a
-   * latent wiring bug. If dead code, remove. If bug, route the
-   * processor to call this service.
-   *
-   * Not in scope of B2 (no public endpoint exposes this method).
+   * Errors throw and are retried by BullMQ (up to 3 attempts).
+   * Cost cap exhaustion does NOT throw (no retry — would just
+   * waste BullMQ attempts hitting the same wall).
    */
   async processTranscription(payload: {
     audioAssetId: string;
     incidentId: string;
+    userId: string;
     storageKey: string;
     mimeType: string;
   }): Promise<void> {
-    const { audioAssetId, incidentId, storageKey, mimeType } = payload;
+    const { audioAssetId, incidentId, userId, storageKey, mimeType } = payload;
+
+    // 1. Validate ownership — defense in depth: even though the
+    // job was enqueued by an authenticated upload, the worker
+    // re-validates in case of replayed/forged payloads.
+    await this.incidentsService.assertOwnership(incidentId, userId);
 
     this.logger.log(`Processing transcription for asset ${audioAssetId}`);
 
-    // Update status to processing
+    // 2a. Cost cap — per-incident
+    // Counts assets that have already passed Deepgram (each one
+    // = one paid call). PENDING assets are excluded because they
+    // have not cost anything yet — they will be counted when
+    // their own job runs.
+    const maxPerIncident = this.config.get<number>(
+      'MAX_TRANSCRIPTIONS_PER_INCIDENT',
+      20,
+    );
+    const processedCount = await this.audioAssetRepo.count({
+      where: {
+        incidentId,
+        transcriptionStatus: In([
+          TranscriptionStatus.PROCESSING,
+          TranscriptionStatus.COMPLETED,
+          TranscriptionStatus.FAILED,
+        ]),
+      },
+    });
+    if (processedCount >= maxPerIncident) {
+      await this.markCostCapHit({
+        audioAssetId,
+        incidentId,
+        userId,
+        reason: 'per_incident',
+        count: processedCount,
+        limit: maxPerIncident,
+      });
+      return;
+    }
+
+    // 2b. Cost cap — per-day (global across all users/incidents)
+    // Sums duration_seconds of assets in the last 24h that have
+    // gone through Deepgram (processing/completed/failed all
+    // counted — failed because abusers could otherwise force
+    // failures to dodge the cap).
+    const maxPerDayMinutes = this.config.get<number>(
+      'MAX_AUDIO_MINUTES_PER_DAY',
+      2000,
+    );
+    const dayResult = await this.audioAssetRepo
+      .createQueryBuilder('asset')
+      .select('COALESCE(SUM(asset.duration_seconds), 0) / 60.0', 'minutes')
+      .where("asset.created_at > NOW() - INTERVAL '24 hours'")
+      .andWhere('asset.transcription_status IN (:...statuses)', {
+        statuses: ['processing', 'completed', 'failed'],
+      })
+      .getRawOne<{ minutes: string }>();
+    const minutesUsed = parseFloat(dayResult?.minutes ?? '0');
+    if (minutesUsed >= maxPerDayMinutes) {
+      await this.markCostCapHit({
+        audioAssetId,
+        incidentId,
+        userId,
+        reason: 'per_day',
+        count: minutesUsed,
+        limit: maxPerDayMinutes,
+      });
+      return;
+    }
+
+    // 3. Mark as processing (only after caps clear, so a capped
+    // asset never transitions to PROCESSING and then back to
+    // FAILED — avoids confusing audit trail).
     await this.audioAssetRepo.update(audioAssetId, {
       transcriptionStatus: TranscriptionStatus.PROCESSING,
     });
 
     try {
-      // Download from S3
+      // 4. Download from S3
       const audioBuffer = await this.downloadFromS3(storageKey);
 
-      // Transcribe
+      // 5. Transcribe
       const transcriptionResult = await this.deepgramProvider.transcribe(
         audioBuffer,
         { mimeType },
       );
 
-      if (!transcriptionResult.text || transcriptionResult.text.trim().length === 0) {
+      if (
+        !transcriptionResult.text ||
+        transcriptionResult.text.trim().length === 0
+      ) {
         this.logger.log(`No speech detected in asset ${audioAssetId}`);
         await this.audioAssetRepo.update(audioAssetId, {
           transcriptionStatus: TranscriptionStatus.COMPLETED,
@@ -243,13 +330,13 @@ export class AudioService {
         return;
       }
 
-      // Classify for distress
+      // 6. Classify for distress
       const classification = await this.aiClassifier.classifyDistress(
         transcriptionResult.text,
         { incidentId },
       );
 
-      // Save transcript
+      // 7. Save transcript
       const transcript = this.transcriptRepo.create({
         audioAssetId,
         incidentId,
@@ -267,12 +354,12 @@ export class AudioService {
 
       await this.transcriptRepo.save(transcript);
 
-      // Update asset status
+      // 8. Mark as completed
       await this.audioAssetRepo.update(audioAssetId, {
         transcriptionStatus: TranscriptionStatus.COMPLETED,
       });
 
-      // Create incident event
+      // 9a. Persistent timeline event (DB)
       await this.createIncidentEvent(incidentId, 'transcription_completed', {
         audioAssetId,
         transcriptId: transcript.id,
@@ -293,6 +380,20 @@ export class AudioService {
           signals: classification.signals,
         });
       }
+
+      // 9b. Real-time broadcast (migrated from AudioProcessor in Fix 4).
+      // Mobile clients subscribed to incident:${id} room get notified
+      // immediately, without polling the timeline endpoint.
+      this.incidentGateway.broadcastTimelineEvent(incidentId, {
+        type: 'transcription_completed',
+        payload: {
+          audioAssetId,
+          transcriptId: transcript.id,
+          confidence: transcriptionResult.confidence,
+          hasDistressSignals: classification.signals.length > 0,
+        },
+        timestamp: new Date().toISOString(),
+      });
 
       this.logger.log(
         `Transcription completed for asset ${audioAssetId}: ` +
@@ -316,6 +417,44 @@ export class AudioService {
 
       throw error; // Let BullMQ retry
     }
+  }
+
+  /**
+   * Cost-cap-hit handling: mark the asset as FAILED, record an
+   * incident_events row with the reason, and capture a Sentry
+   * warning. Returns without throwing — BullMQ should NOT retry,
+   * because the cap will keep firing.
+   */
+  private async markCostCapHit(args: {
+    audioAssetId: string;
+    incidentId: string;
+    userId: string;
+    reason: 'per_incident' | 'per_day';
+    count: number;
+    limit: number;
+  }): Promise<void> {
+    const { audioAssetId, incidentId, userId, reason, count, limit } = args;
+
+    await this.audioAssetRepo.update(audioAssetId, {
+      transcriptionStatus: TranscriptionStatus.FAILED,
+    });
+
+    await this.createIncidentEvent(incidentId, 'ai_analysis_result', {
+      source: 'cost_cap',
+      reason,
+      count,
+      limit,
+    });
+
+    Sentry.captureMessage('cost_cap_hit', {
+      level: 'warning',
+      tags: { reason, incidentId, userId, audioAssetId },
+    });
+
+    this.logger.warn(
+      `Cost cap hit for asset ${audioAssetId} (${reason}: ${count}/${limit}) — ` +
+        `transcription skipped, no retry`,
+    );
   }
 
   // ------------------------------------------------------------------
