@@ -1,5 +1,4 @@
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
-import { RiskEngineService } from '../../src/modules/risk-engine/risk-engine.service';
 import {
   IncidentStatus,
   TriggerType,

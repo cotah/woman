@@ -20,7 +20,6 @@ export class PushProvider implements NotificationProvider {
 
   private initializeFirebase(): void {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const admin = require('firebase-admin');
 
       const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
@@ -41,7 +40,6 @@ export class PushProvider implements NotificationProvider {
 
         if (serviceAccountPath) {
           // Option 1: Use service account JSON file
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
           const serviceAccount = require(serviceAccountPath);
           admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),

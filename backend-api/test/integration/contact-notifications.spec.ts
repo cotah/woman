@@ -197,7 +197,7 @@ describe('Contact Notifications (Integration)', () => {
 
   describe('response tracking', () => {
     it('should record a contact response', async () => {
-      const response = await service.recordContactResponse('inc-1', 'c1', {
+      await service.recordContactResponse('inc-1', 'c1', {
         responseType: 'trying_to_reach',
         note: 'On my way to help',
       });

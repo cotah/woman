@@ -356,7 +356,7 @@ describe('NotificationsService - Alert Escalation Waves', () => {
 
   describe('contact response recording', () => {
     it('should save a contact response and create an incident event', async () => {
-      const response = await service.recordContactResponse('inc-1', 'c1', {
+      await service.recordContactResponse('inc-1', 'c1', {
         responseType: 'trying_to_reach',
         note: 'On my way',
       });

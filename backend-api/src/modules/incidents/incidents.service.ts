@@ -463,7 +463,7 @@ export class IncidentsService {
     userId: string,
     dto: AddEventDto,
   ): Promise<IncidentEvent> {
-    const incident = await this.findOneOrFail(incidentId, userId);
+    await this.findOneOrFail(incidentId, userId);
 
     // Validate event type
     const eventType = dto.type as IncidentEventType;

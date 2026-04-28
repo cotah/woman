@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
-import { TimelineService, TimelineEntry } from '../../src/modules/timeline/timeline.service';
+import { TimelineService } from '../../src/modules/timeline/timeline.service';
 import { Incident, RiskLevel } from '../../src/modules/incidents/entities/incident.entity';
 import { IncidentEvent, IncidentEventType } from '../../src/modules/incidents/entities/incident-event.entity';
 import { IncidentLocation } from '../../src/modules/incidents/entities/incident-location.entity';

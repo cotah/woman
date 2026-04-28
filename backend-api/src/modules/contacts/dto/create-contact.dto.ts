@@ -4,11 +4,9 @@ import {
   IsOptional,
   IsInt,
   IsBoolean,
-  IsPhoneNumber,
   Min,
   Max,
   MaxLength,
-  IsLocale,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 

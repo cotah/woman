@@ -26,7 +26,6 @@ export class VoiceProvider implements NotificationProvider {
     );
 
     if (accountSid && authToken) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const twilio = require('twilio');
       this.client = twilio(accountSid, authToken);
     } else {

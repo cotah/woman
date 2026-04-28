@@ -1,6 +1,5 @@
 import {
   Injectable,
-  CanActivate,
   ExecutionContext,
   ForbiddenException,
 } from '@nestjs/common';
@@ -20,7 +19,7 @@ export class AdminGuard extends AuthGuard('jwt') {
     err: Error | null,
     user: TUser,
     _info: Error | undefined,
-    context: ExecutionContext,
+    _context: ExecutionContext,
   ): TUser {
     if (err || !user) {
       throw err || new ForbiddenException('Authentication required');

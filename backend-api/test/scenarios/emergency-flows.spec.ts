@@ -445,7 +445,7 @@ describe('Emergency Flows (Scenarios)', () => {
       });
 
       mockIncidentRepo.findOne.mockResolvedValue(incident);
-      const activated = await incidentsService.activate('inc-scenario', 'user-1');
+      await incidentsService.activate('inc-scenario', 'user-1');
 
       // Step 2: Dispatch alert waves (simulating what happens after activation)
       await notificationsService.dispatchAlertWaves(

@@ -19,7 +19,6 @@ import { RiskAssessment } from '../../src/modules/incidents/entities/risk-assess
 describe('Incident Creation (Integration)', () => {
   let module: TestingModule;
   let incidentsService: IncidentsService;
-  let riskEngineService: RiskEngineService;
   let mockIncidentRepo: any;
   let mockEventRepo: any;
   let mockLocationRepo: any;
@@ -118,7 +117,6 @@ describe('Incident Creation (Integration)', () => {
     }).compile();
 
     incidentsService = module.get(IncidentsService);
-    riskEngineService = module.get(RiskEngineService);
   });
 
   afterEach(async () => {

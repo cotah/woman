@@ -4,9 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
   OneToMany,
-  JoinColumn,
   Index,
 } from 'typeorm';
 import { IncidentEvent } from './incident-event.entity';

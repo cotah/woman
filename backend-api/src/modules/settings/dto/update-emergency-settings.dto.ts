@@ -9,7 +9,6 @@ import {
   Min,
   Max,
   MaxLength,
-  IsObject,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { AudioConsentLevel, RiskLevel } from '../entities/emergency-settings.entity';

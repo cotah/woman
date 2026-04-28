@@ -21,7 +21,6 @@ export class SmsProvider implements NotificationProvider {
     this.fromNumber = this.config.get<string>('TWILIO_FROM_NUMBER', '');
 
     if (accountSid && authToken) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const twilio = require('twilio');
       this.client = twilio(accountSid, authToken);
     } else {
