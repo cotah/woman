@@ -16,7 +16,7 @@ export interface AudioTranscriptionJobData {
   language?: string;
 }
 
-@Processor('audio', {
+@Processor('audio-processing', {
   concurrency: 3, // limit concurrent transcription jobs (CPU/API intensive)
 })
 export class AudioProcessor extends WorkerHost {
