@@ -23,16 +23,6 @@ Formato:
 
 ---
 
-## `getLatestLocation` em `location.service.ts:147` — método público sem callers
-
-- Mesmo padrão do `processTranscription`. Sem callers em `src/`. Não exposto por `location.controller.ts`.
-- Marcado `@deprecated` durante o B2 e mantido **secure-by-default** (`assertOwnership` antes de operar) caso seja wired no futuro.
-- **Fix:** investigar junto com `processTranscription` — provável que sejam o mesmo padrão de incompletude. Decidir entre remover ou plugar a um endpoint legítimo.
-- **Esforço estimado:** investigação compartilhada com item acima.
-- **Criado durante:** investigação do Passo 4 do B2 (commit `9805178`, 2026-04-28).
-
----
-
 ## Audio pipeline retry duplica side effects
 
 - **Local:** `backend-api/src/modules/audio/audio.service.ts` `processTranscription`.
@@ -82,3 +72,9 @@ Formato:
 - **Registrado em:** B2 commits (`038340a..9805178`, 2026-04-28).
 - **Resolvido em:** `1ab49e5` (cleanup batch 1, 2026-04-28).
 - **Como:** `.gitattributes` expandido com lista explícita de binary types (`*.png`, `*.jpg`, `*.mp3`, etc.) além da regra base `* text=auto eol=lf` que já existia desde 2026-04-13. `git add --renormalize .` confirmou que o índice já estava consistente — nenhum arquivo tracked foi tocado, o que valida que os warnings eram apenas cosméticos do working copy local.
+
+### `getLatestLocation` órfão (B2 follow-up)
+
+- **Registrado em:** `9805178` (durante B2, 2026-04-28).
+- **Resolvido em:** `4307719` (remoção isolada, 2026-04-28).
+- **Como:** método removido. A funcionalidade que ele proveria ("última localização do incident") já está coberta pelos campos `lastLatitude` / `lastLongitude` / `lastLocationAt` da `Incident` entity (snapshot O(1) atualizado a cada upload de location). Mobile e admin já consomem esses campos. Adicionar `getLatestLocation` como segunda fonte de verdade criaria risco de drift sem benefício funcional.
