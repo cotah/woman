@@ -57,6 +57,16 @@ Formato:
 
 ---
 
+### IncidentGateway inerte (resolvido em Fix 2 do pipeline)
+
+- **Descoberto durante:** registro do AudioProcessor (Fix 2 do pipeline-fix).
+- **Sintoma em prod até descoberta:** mobile tenta conectar `wss://.../incidents` → handshake falha ou timeout → reconnect loop perpétuo → eventos `incident:update`, `timeline:event`, `contact:response` NUNCA chegam à tela da usuária em situação de emergência.
+- **Causa:** gateway declarado como classe (`src/websocket/incident.gateway.ts`), NestJS pode instanciar, mas nunca registrado como provider de módulo, então o transport WebSocket não é vinculado.
+- **Origem:** mesmo initial commit `3f547a6` — padrão recorrente de "boilerplate incompleto".
+- **Resolvido:** criação do `WebsocketModule` dedicado em `src/websocket/websocket.module.ts`, registrando `IncidentGateway` como provider e exportando-o. Importado pelo `AudioModule` (consumidor direto via AudioProcessor) e pelo `AppModule` (defensive wiring).
+
+---
+
 ## Notas de processo (acumular conforme surgem)
 
 - 2026-04-28 (durante Fix 1 do pipeline de áudio): ao consolidar entities, verificar não só imports do TYPE mas também usos como VALOR LITERAL (ex: `transcriptionStatus: 'pending'` quebra com enum strict-typed mesmo sem importar o type).

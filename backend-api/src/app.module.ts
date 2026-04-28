@@ -24,6 +24,7 @@ import { HealthModule } from './modules/health/health.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { JourneyModule } from './modules/journey/journey.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
+import { WebsocketModule } from './websocket/websocket.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
@@ -105,6 +106,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     AdminModule,
     JourneyModule,
     TrackingModule,
+    WebsocketModule,
   ],
   providers: [
     // Sentry global filter (catches all unhandled exceptions)

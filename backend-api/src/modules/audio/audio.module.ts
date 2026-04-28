@@ -11,6 +11,10 @@ import { DeepgramProvider } from './providers/deepgram.provider';
 import { AiClassifierProvider } from './providers/ai-classifier.provider';
 // IDOR fix B2 — needed for IncidentsService.assertOwnership
 import { IncidentsModule } from '../incidents/incidents.module';
+// Pipeline-fix Fix 2 — register the previously-orphaned
+// queue worker and provide IncidentGateway access for it.
+import { AudioProcessor } from '../../queue/audio.processor';
+import { WebsocketModule } from '../../websocket/websocket.module';
 
 @Module({
   imports: [
@@ -20,9 +24,15 @@ import { IncidentsModule } from '../incidents/incidents.module';
       storage: memoryStorage(),
     }),
     IncidentsModule,
+    WebsocketModule,
   ],
   controllers: [AudioController],
-  providers: [AudioService, DeepgramProvider, AiClassifierProvider],
+  providers: [
+    AudioService,
+    DeepgramProvider,
+    AiClassifierProvider,
+    AudioProcessor,
+  ],
   exports: [AudioService],
 })
 export class AudioModule {}
