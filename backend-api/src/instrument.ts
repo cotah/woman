@@ -5,6 +5,6 @@ Sentry.init({
   environment: process.env.NODE_ENV || 'development',
   // Only send errors in production/staging
   enabled: process.env.NODE_ENV !== 'development',
-  sendDefaultPii: true,
+  sendDefaultPii: false,
   tracesSampleRate: 0.2,
 });
