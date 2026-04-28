@@ -44,6 +44,20 @@ Formato:
 
 ---
 
+## Audio pipeline retry duplica side effects
+
+- **Local:** `backend-api/src/modules/audio/audio.service.ts` `processTranscription`.
+- **Sintoma:** se o método lançar **após** `transcriptRepo.save`, o BullMQ retenta (até 3 attempts). No retry, o método roda do início:
+  - Transcript é re-criado em `incident_transcripts` (sem unique constraint em `audio_asset_id`).
+  - `incident_events` `transcription_completed` e `ai_analysis_result` duplicados.
+  - Risk signals (Bug 8.a: `audio_distress_detected`, `help_phrase_detected`) re-emitidos — score do incidente sobe duas vezes.
+- **Probabilidade real hoje:** muito baixa. Entre o `transcriptRepo.save` e o final do método há apenas: `audioAssetRepo.update COMPLETED`, dois `createIncidentEvent` (com try/catch interno), `processRiskSignal` (com try/catch externo, não relança), e `broadcastTimelineEvent` (sync, não lança em condições normais).
+- **Fix proposto:** unique constraint em `incident_transcripts.audio_asset_id` (1 transcript por chunk = invariante natural). Migration nova. Como bonus, o engine também ganharia dedup natural se aceitar dedup por `(incidentId, signal.type, payload.audioAssetId)` para signals `oncePerIncident:false` — mudança opcional.
+- **Esforço estimado:** 1-2h para migration + ajuste de upsert no service. Testes precisam de cenário de retry.
+- **Criado durante:** Bug 8.a fix (2026-04-28). Aceito como débito porque resolver direito exige migration de schema fora do escopo do 8.a.
+
+---
+
 ## CRLF nos arquivos do `backend-api`
 
 - Git emite `warning: in the working copy of '...', CRLF will be replaced by LF the next time Git touches it` em alguns arquivos editados durante o B2.

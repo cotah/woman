@@ -402,6 +402,65 @@ export class AudioService {
         });
       }
 
+      // 9c. Emit risk signals to the engine (Bug 8.a fix).
+      // AiClassifier already shaped the result. Translate to engine
+      // vocabulary using the two complementary rules from
+      // risk-rules.config.ts:
+      //   - audio_distress_detected (+25): any distress at all
+      //   - help_phrase_detected (+35): explicit help request
+      // Both are oncePerIncident=false, liveOnly=true — multiple
+      // chunks accumulate score; test-mode incidents see no effect.
+      //
+      // Wrapped in try/catch with logger.error: if processRiskSignal
+      // throws (commonly because the incident transitioned to
+      // terminal status while the chunk was being processed), we
+      // still complete the transcription. The signal would have
+      // been informational on a non-active incident anyway.
+      if (classification.isDistress || classification.signals.length > 0) {
+        try {
+          await this.incidentsService.processRiskSignal(incidentId, userId, {
+            type: 'audio_distress_detected',
+            payload: {
+              audioAssetId,
+              transcriptId: transcript.id,
+              riskLevel: classification.riskLevel,
+              confidence: classification.confidence,
+              signalCount: classification.signals.length,
+            },
+          });
+
+          const hasHelpRequest = classification.signals.some(
+            (s) => s.type === 'help_request',
+          );
+          if (hasHelpRequest) {
+            await this.incidentsService.processRiskSignal(
+              incidentId,
+              userId,
+              {
+                type: 'help_phrase_detected',
+                payload: {
+                  audioAssetId,
+                  transcriptId: transcript.id,
+                  excerpts: classification.signals
+                    .filter((s) => s.type === 'help_request')
+                    .map((s) => s.excerpt)
+                    .filter(Boolean),
+                },
+              },
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to emit risk signal for asset ${audioAssetId} ` +
+              `(incident ${incidentId}): ${error.message}. ` +
+              `Common cause: incident transitioned to terminal status ` +
+              `during transcription. Transcript was saved successfully; ` +
+              `pipeline will complete normally.`,
+            error.stack,
+          );
+        }
+      }
+
       // 9b. Real-time broadcast (migrated from AudioProcessor in Fix 4).
       // Mobile clients subscribed to incident:${id} room get notified
       // immediately, without polling the timeline endpoint.

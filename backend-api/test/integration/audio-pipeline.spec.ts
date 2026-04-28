@@ -10,10 +10,23 @@ import { TranscriptionStatus } from '../../src/modules/audio/entities/incident-a
  * pipeline introduced in Fix 4 (commit 1e899bd). Validates:
  *
  *   1. Happy path — transcribe, classify, persist, broadcast
+ *      (no risk signal emitted when classifier returns no distress)
  *   2. Cost cap per-incident — abort before Deepgram, FAILED, no retry
  *   3. Cost cap per-day — abort before Deepgram, FAILED, no retry
  *   4. Ownership fail — assertOwnership throws, no side effects
  *   5. Deepgram error — PROCESSING → FAILED, rethrow for BullMQ retry
+ *   6. Legacy payload — recovery via getOwnerUserId
+ *   7. Distress without help_request — emits 1 risk signal
+ *      (audio_distress_detected only)
+ *   8. Distress with help_request — emits 2 risk signals
+ *      (audio_distress_detected + help_phrase_detected)
+ *   9. processRiskSignal throws — pipeline completes normally
+ *      (logger.error, broadcast still emitted, no rethrow)
+ *
+ * Note on scope: tests validate that AudioService EMITS the right
+ * signals to IncidentsService. Validation that the engine processes
+ * them (or skips them in test mode) lives in
+ * test/unit/risk-engine.spec.ts and is not repeated here.
  *
  * Regression net for the 3+1 structural bugs that left this pipeline
  * inert in production. Each scenario fails loudly if any of these
@@ -67,6 +80,7 @@ describe('AudioPipeline (processTranscription)', () => {
   // is isolated per scenario).
   let assertOwnership: jest.Mock;
   let getOwnerUserId: jest.Mock;
+  let processRiskSignal: jest.Mock;
   let assetCount: jest.Mock;
   let assetUpdate: jest.Mock;
   let dayMinutes: jest.Mock;
@@ -82,6 +96,7 @@ describe('AudioPipeline (processTranscription)', () => {
 
     assertOwnership = jest.fn().mockResolvedValue(undefined);
     getOwnerUserId = jest.fn().mockResolvedValue(USER);
+    processRiskSignal = jest.fn().mockResolvedValue({});
     assetCount = jest.fn().mockResolvedValue(0);
     assetUpdate = jest.fn().mockResolvedValue(undefined);
     dayMinutes = jest.fn().mockResolvedValue({ minutes: '0' });
@@ -121,7 +136,11 @@ describe('AudioPipeline (processTranscription)', () => {
     };
     const deepgramProvider: any = { transcribe: deepgramTranscribe };
     const aiClassifier: any = { classifyDistress: aiClassify };
-    const incidentsService: any = { assertOwnership, getOwnerUserId };
+    const incidentsService: any = {
+      assertOwnership,
+      getOwnerUserId,
+      processRiskSignal,
+    };
     const incidentGateway: any = { broadcastTimelineEvent };
 
     audioService = new (AudioService as any)(
@@ -190,6 +209,10 @@ describe('AudioPipeline (processTranscription)', () => {
     // Persistent timeline event recorded (createIncidentEvent uses
     // manager.query INSERT INTO incident_events)
     expect(managerQuery).toHaveBeenCalled();
+
+    // Bug 8.a — no risk signal emitted when classifier reports no
+    // distress and no signals. The engine should not be touched at all.
+    expect(processRiskSignal).not.toHaveBeenCalled();
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -363,6 +386,197 @@ describe('AudioPipeline (processTranscription)', () => {
 
     // No cost-cap path triggered
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 7. RISK SIGNAL — DISTRESS WITHOUT HELP REQUEST (Bug 8.a)
+  // ─────────────────────────────────────────────────────────────
+  it('emits audio_distress_detected only when classifier returns distress without help_request', async () => {
+    deepgramTranscribe.mockResolvedValue({
+      text: 'I am scared, please leave me alone',
+      confidence: 0.93,
+      language: 'en',
+    });
+    aiClassify.mockResolvedValue({
+      isDistress: true,
+      riskLevel: 'high',
+      confidence: 0.88,
+      summary: 'fear and verbal threat detected',
+      signals: [
+        {
+          type: 'fear_indicator',
+          description: 'expression of fear',
+          confidence: 0.9,
+          excerpt: 'I am scared',
+        },
+        {
+          type: 'verbal_threat',
+          description: 'implied threat',
+          confidence: 0.7,
+          excerpt: 'leave me alone',
+        },
+      ],
+    });
+
+    await audioService.processTranscription(basePayload);
+
+    // Exactly one risk signal emitted: audio_distress_detected
+    expect(processRiskSignal).toHaveBeenCalledTimes(1);
+    expect(processRiskSignal).toHaveBeenCalledWith(
+      INCIDENT,
+      USER,
+      expect.objectContaining({
+        type: 'audio_distress_detected',
+        payload: expect.objectContaining({
+          audioAssetId: ASSET,
+          riskLevel: 'high',
+          confidence: 0.88,
+          signalCount: 2,
+        }),
+      }),
+    );
+
+    // Pipeline still completes normally
+    expect(transcriptSave).toHaveBeenCalledTimes(1);
+    expect(broadcastTimelineEvent).toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 8. RISK SIGNAL — DISTRESS WITH HELP REQUEST (Bug 8.a)
+  // ─────────────────────────────────────────────────────────────
+  it('emits audio_distress_detected AND help_phrase_detected when classifier finds help_request', async () => {
+    deepgramTranscribe.mockResolvedValue({
+      text: 'help me, please. he will kill me',
+      confidence: 0.99,
+      language: 'en',
+    });
+    aiClassify.mockResolvedValue({
+      isDistress: true,
+      riskLevel: 'critical',
+      confidence: 0.97,
+      summary: 'critical distress with explicit help request',
+      signals: [
+        {
+          type: 'help_request',
+          description: 'explicit plea for help',
+          confidence: 0.99,
+          excerpt: 'help me, please',
+        },
+        {
+          type: 'violence_indicator',
+          description: 'threat of homicide',
+          confidence: 0.95,
+          excerpt: 'he will kill me',
+        },
+        {
+          type: 'help_request',
+          description: 'second help plea',
+          confidence: 0.88,
+          excerpt: 'please',
+        },
+      ],
+    });
+
+    await audioService.processTranscription(basePayload);
+
+    // Two distinct risk signals emitted, in order
+    expect(processRiskSignal).toHaveBeenCalledTimes(2);
+    expect(processRiskSignal).toHaveBeenNthCalledWith(
+      1,
+      INCIDENT,
+      USER,
+      expect.objectContaining({
+        type: 'audio_distress_detected',
+        payload: expect.objectContaining({
+          audioAssetId: ASSET,
+          signalCount: 3,
+        }),
+      }),
+    );
+    expect(processRiskSignal).toHaveBeenNthCalledWith(
+      2,
+      INCIDENT,
+      USER,
+      expect.objectContaining({
+        type: 'help_phrase_detected',
+        payload: expect.objectContaining({
+          audioAssetId: ASSET,
+          excerpts: expect.arrayContaining(['help me, please', 'please']),
+        }),
+      }),
+    );
+
+    expect(transcriptSave).toHaveBeenCalledTimes(1);
+    expect(broadcastTimelineEvent).toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 9. RISK SIGNAL — ENGINE THROWS (graceful degradation, Bug 8.a)
+  // ─────────────────────────────────────────────────────────────
+  it('completes pipeline normally when processRiskSignal throws (incident in terminal state)', async () => {
+    deepgramTranscribe.mockResolvedValue({
+      text: 'help me',
+      confidence: 0.95,
+      language: 'en',
+    });
+    aiClassify.mockResolvedValue({
+      isDistress: true,
+      riskLevel: 'high',
+      confidence: 0.9,
+      summary: 'distress',
+      signals: [
+        {
+          type: 'help_request',
+          description: 'plea',
+          confidence: 0.95,
+          excerpt: 'help me',
+        },
+      ],
+    });
+    // Simulate the common production case: incident transitioned to
+    // a terminal status (cancelled/resolved) between transcription
+    // start and end. processRiskSignal validates active status and
+    // throws BadRequestException.
+    const { BadRequestException } = require('@nestjs/common');
+    processRiskSignal.mockRejectedValue(
+      new BadRequestException(
+        'Cannot process signals for incident in status "resolved".',
+      ),
+    );
+    const errorSpy = jest
+      .spyOn((audioService as any).logger, 'error')
+      .mockImplementation(() => undefined);
+
+    // Pipeline must complete without rethrowing
+    await expect(
+      audioService.processTranscription(basePayload),
+    ).resolves.toBeUndefined();
+
+    // Engine was attempted (first signal), threw on first call
+    expect(processRiskSignal).toHaveBeenCalled();
+
+    // Error logged at error level (not warn) per project decision
+    // — terminal-state hits should be visible for pattern detection.
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to emit risk signal'),
+      expect.any(String),
+    );
+
+    // Critical assertion: transcript was saved AND broadcast was
+    // emitted. Pipeline did NOT abort on the signal failure.
+    expect(transcriptSave).toHaveBeenCalledTimes(1);
+    expect(broadcastTimelineEvent).toHaveBeenCalledWith(
+      INCIDENT,
+      expect.objectContaining({ type: 'transcription_completed' }),
+    );
+
+    // Asset still marked COMPLETED (not FAILED)
+    expect(assetUpdate).toHaveBeenCalledWith(ASSET, {
+      transcriptionStatus: TranscriptionStatus.COMPLETED,
+    });
+    expect(assetUpdate).not.toHaveBeenCalledWith(ASSET, {
+      transcriptionStatus: TranscriptionStatus.FAILED,
+    });
   });
 
   // ─────────────────────────────────────────────────────────────
