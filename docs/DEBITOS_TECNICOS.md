@@ -12,14 +12,18 @@ Formato:
 
 ---
 
-## Lint script broken (B2 follow-up)
+## Lint baseline com 149 warnings legacy
 
-- `npm run lint` falha porque `eslint` não está em `devDependencies` e não há config (`.eslintrc.*` ou `eslint.config.*`) no projeto.
-- `npx eslint` baixa a v10.2.1, que exige flat config — falha imediata por config ausente.
-- Não bloqueia `npm run build` nem `npm test`. CI atual não roda lint.
-- **Fix:** adicionar `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin` em `devDependencies`. Criar `eslint.config.mjs` (flat config) com regras NestJS padrão. Opcional: integrar a um job do CI.
-- **Esforço estimado:** 1h.
-- **Criado durante:** pré-voo do B2 (commits `038340a..9805178`, 2026-04-28).
+- ESLint funcional desde `290e62a` (2026-04-29). `npm run lint` retorna exit 0 com 149 warnings em código pré-existente.
+- **Sintoma:** warnings em código legacy. Não são errors — pipeline passa — mas indicam código que poderia ser tipado mais estritamente.
+- **Distribuição:**
+  - `@typescript-eslint/no-explicit-any`: **149 ocorrências** (~119 em test files com mocks `: any`, ~30 em src/ — payloads JSON em entities, response handlers de SDKs externos como Twilio e Deepgram).
+- **Decisão:** baseline aceito. Novos códigos devem respeitar todas as regras (warnings também). Limpeza legacy fica como sweep futuro, sem urgência. Pipeline não trava.
+- **Esforço estimado pra limpar:**
+  - Test files (~119 warnings): 4-6h substituindo `: any` por tipos de mock (`jest.Mocked<T>`, `Partial<T>`, `DeepPartial`).
+  - Src files (~30 warnings): 1-2h tipando payloads JSON e responses de SDKs.
+  - **Total: ~6-8h** num sweep dedicado.
+- **Criado durante:** fix de "Lint script broken" (`290e62a`, 2026-04-29).
 
 ---
 
@@ -78,3 +82,9 @@ Formato:
 - **Registrado em:** `9805178` (durante B2, 2026-04-28).
 - **Resolvido em:** `4307719` (remoção isolada, 2026-04-28).
 - **Como:** método removido. A funcionalidade que ele proveria ("última localização do incident") já está coberta pelos campos `lastLatitude` / `lastLongitude` / `lastLocationAt` da `Incident` entity (snapshot O(1) atualizado a cada upload de location). Mobile e admin já consomem esses campos. Adicionar `getLatestLocation` como segunda fonte de verdade criaria risco de drift sem benefício funcional.
+
+### Lint script broken (B2 follow-up)
+
+- **Registrado em:** B2 commits (`038340a..9805178`, 2026-04-28).
+- **Resolvido em:** `290e62a` (lint fix, 2026-04-29).
+- **Como:** `eslint`, `@typescript-eslint/parser` e `@typescript-eslint/eslint-plugin` instalados em devDependencies. Criada `backend-api/eslint.config.mjs` (flat config) com regras conservadoras (`no-unused-vars` error com ignore patterns `^_`; `no-explicit-any` e `no-console` warn, com override desabilitando `no-console` em `**/database/seeds/**`). Script `lint` separado em `lint` (check-only) e `lint:fix` (opt-in explícito). Os 24 errors flagged na primeira execução foram corrigidos no mesmo commit (20 imports órfãos + 4 vars de teste + 1 arg + 1 var local com retorno descartado). 4 directives `eslint-disable-next-line @typescript-eslint/no-var-requires` órfãs nos providers de notification (push/sms/voice) também removidas. Permanecem 149 warnings (todas `no-explicit-any`) registradas como débito separado.
