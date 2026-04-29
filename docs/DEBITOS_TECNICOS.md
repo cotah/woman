@@ -27,20 +27,6 @@ Formato:
 
 ---
 
-## Audio pipeline retry duplica side effects
-
-- **Local:** `backend-api/src/modules/audio/audio.service.ts` `processTranscription`.
-- **Sintoma:** se o método lançar **após** `transcriptRepo.save`, o BullMQ retenta (até 3 attempts). No retry, o método roda do início:
-  - Transcript é re-criado em `incident_transcripts` (sem unique constraint em `audio_asset_id`).
-  - `incident_events` `transcription_completed` e `ai_analysis_result` duplicados.
-  - Risk signals (Bug 8.a: `audio_distress_detected`, `help_phrase_detected`) re-emitidos — score do incidente sobe duas vezes.
-- **Probabilidade real hoje:** muito baixa. Entre o `transcriptRepo.save` e o final do método há apenas: `audioAssetRepo.update COMPLETED`, dois `createIncidentEvent` (com try/catch interno), `processRiskSignal` (com try/catch externo, não relança), e `broadcastTimelineEvent` (sync, não lança em condições normais).
-- **Fix proposto:** unique constraint em `incident_transcripts.audio_asset_id` (1 transcript por chunk = invariante natural). Migration nova. Como bonus, o engine também ganharia dedup natural se aceitar dedup por `(incidentId, signal.type, payload.audioAssetId)` para signals `oncePerIncident:false` — mudança opcional.
-- **Esforço estimado:** 1-2h para migration + ajuste de upsert no service. Testes precisam de cenário de retry.
-- **Criado durante:** Bug 8.a fix (2026-04-28). Aceito como débito porque resolver direito exige migration de schema fora do escopo do 8.a.
-
----
-
 ### IncidentGateway inerte (resolvido em Fix 2 do pipeline)
 
 - **Descoberto durante:** registro do AudioProcessor (Fix 2 do pipeline-fix).
@@ -88,3 +74,9 @@ Formato:
 - **Registrado em:** B2 commits (`038340a..9805178`, 2026-04-28).
 - **Resolvido em:** `290e62a` (lint fix, 2026-04-29).
 - **Como:** `eslint`, `@typescript-eslint/parser` e `@typescript-eslint/eslint-plugin` instalados em devDependencies. Criada `backend-api/eslint.config.mjs` (flat config) com regras conservadoras (`no-unused-vars` error com ignore patterns `^_`; `no-explicit-any` e `no-console` warn, com override desabilitando `no-console` em `**/database/seeds/**`). Script `lint` separado em `lint` (check-only) e `lint:fix` (opt-in explícito). Os 24 errors flagged na primeira execução foram corrigidos no mesmo commit (20 imports órfãos + 4 vars de teste + 1 arg + 1 var local com retorno descartado). 4 directives `eslint-disable-next-line @typescript-eslint/no-var-requires` órfãs nos providers de notification (push/sms/voice) também removidas. Permanecem 149 warnings (todas `no-explicit-any`) registradas como débito separado.
+
+### Audio pipeline retry duplica side effects
+
+- **Registrado em:** `cac6a15` (Bug 8.a fix, 2026-04-28).
+- **Resolvido em:** `fe53fce` (last Major debt, 2026-04-29).
+- **Como:** três camadas de defesa adicionadas: (1) UNIQUE constraint em `incident_transcripts.audio_asset_id` via migration `004_unique_transcript_per_audio_asset.sql` (executada manualmente em prod via Railway dashboard, padrão do projeto com `synchronize:false`); (2) pre-check em `transcriptRepo.exists()` imediatamente após `assertOwnership`, antes de chamadas pagas (Deepgram/OpenAI) e mutação de status — preserva status terminal da run anterior em retry (FAILED ou COMPLETED); (3) try/catch defensivo ao redor de `transcriptRepo.save` com check de `error.code === '23505'` (UniqueViolation) para casos de pre-check perder (theoretical only — same job, single worker). 2 specs novos em `audio-pipeline.spec.ts` validam ambas as camadas. Test count 129 → 131. Zero duplicatas em prod confirmadas via SELECT antes do fix (pipeline só rodou end-to-end a partir de Fix 4 / `1e899bd`).
