@@ -12,7 +12,11 @@ import { IncidentAudioAsset } from './incident-audio-asset.entity';
 
 @Entity('incident_transcripts')
 @Index('idx_transcripts_incident', ['incidentId'])
-@Index('idx_transcripts_audio', ['audioAssetId'])
+// Unique: 1 transcript per audio chunk. Enforced at DB level by
+// migration 004 to prevent duplicate rows on BullMQ retry. See
+// AudioService.processTranscription for the matching service-layer
+// pre-check + UniqueViolation handling.
+@Index('idx_transcripts_audio_unique', ['audioAssetId'], { unique: true })
 export class IncidentTranscript {
   @PrimaryGeneratedColumn('uuid')
   id: string;

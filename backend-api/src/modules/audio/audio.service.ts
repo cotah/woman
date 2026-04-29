@@ -260,6 +260,30 @@ export class AudioService {
       await this.incidentsService.assertOwnership(incidentId, userId);
     }
 
+    // Idempotency pre-check: if a transcript already exists for this
+    // asset, this is a BullMQ retry of a job that previously succeeded
+    // past the save step but threw on a later side effect. Skip
+    // reprocessing to avoid (a) re-paying Deepgram + AI Classifier
+    // costs, (b) duplicate incident_events / risk signals / broadcasts.
+    //
+    // Placed BEFORE cost caps + status mutation so that:
+    //  - retry preserves the terminal status from the prior attempt
+    //    (FAILED or COMPLETED — no regression to PROCESSING)
+    //  - cheapest check (1 SELECT EXISTS) runs before paid checks
+    //
+    // Migration 004 added a UNIQUE constraint on audio_asset_id as
+    // the final defense; the catch around save() below covers the
+    // (theoretical) race the pre-check might miss.
+    if (await this.transcriptRepo.exists({ where: { audioAssetId } })) {
+      this.logger.warn(
+        `Transcript already exists for asset ${audioAssetId} — ` +
+          `BullMQ retry detected after partial completion on a previous ` +
+          `attempt. Skipping reprocessing (no double-charge, no duplicate ` +
+          `side effects).`,
+      );
+      return;
+    }
+
     this.logger.log(`Processing transcription for asset ${audioAssetId}`);
 
     // 2a. Cost cap — per-incident
@@ -373,7 +397,23 @@ export class AudioService {
         })),
       });
 
-      await this.transcriptRepo.save(transcript);
+      try {
+        await this.transcriptRepo.save(transcript);
+      } catch (error) {
+        // Defense in depth: if the pre-check above missed (which
+        // shouldn't happen with single-worker BullMQ semantics — same
+        // job, same worker), the UNIQUE constraint from migration 004
+        // catches the duplicate at the DB layer. PostgreSQL error
+        // code 23505 = unique_violation.
+        if (error?.code === '23505') {
+          this.logger.warn(
+            `UniqueViolation on transcript save for asset ${audioAssetId} ` +
+              `— duplicate detected at DB layer. Skipping side effects.`,
+          );
+          return;
+        }
+        throw error; // Other errors: bubble up for BullMQ retry
+      }
 
       // 8. Mark as completed
       await this.audioAssetRepo.update(audioAssetId, {

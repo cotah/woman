@@ -87,6 +87,7 @@ describe('AudioPipeline (processTranscription)', () => {
   let managerQuery: jest.Mock;
   let transcriptCreate: jest.Mock;
   let transcriptSave: jest.Mock;
+  let transcriptExists: jest.Mock;
   let deepgramTranscribe: jest.Mock;
   let aiClassify: jest.Mock;
   let broadcastTimelineEvent: jest.Mock;
@@ -107,6 +108,7 @@ describe('AudioPipeline (processTranscription)', () => {
     transcriptSave = jest
       .fn()
       .mockImplementation((d) => Promise.resolve(d));
+    transcriptExists = jest.fn().mockResolvedValue(false);
     deepgramTranscribe = jest.fn();
     aiClassify = jest.fn();
     broadcastTimelineEvent = jest.fn();
@@ -127,6 +129,7 @@ describe('AudioPipeline (processTranscription)', () => {
       create: transcriptCreate,
       save: transcriptSave,
       find: jest.fn().mockResolvedValue([]),
+      exists: transcriptExists,
     };
     const audioQueue: any = { add: jest.fn() };
     // Default config returns the second arg (the default), so the
@@ -616,6 +619,110 @@ describe('AudioPipeline (processTranscription)', () => {
         'ai_analysis_result',
         expect.stringContaining('audio_transcription'),
       ]),
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 10. PRE-CHECK SHORT-CIRCUITS BULLMQ RETRY (no double-charge)
+  // ─────────────────────────────────────────────────────────────
+  it('pre-check: existing transcript short-circuits retry without re-paying Deepgram/AI', async () => {
+    // Simulate retry: a transcript already exists for this asset
+    // (1st run completed past save before throwing on a later step;
+    //  BullMQ then retried the same job).
+    transcriptExists.mockResolvedValue(true);
+
+    const warnSpy = jest
+      .spyOn((audioService as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    await expect(
+      audioService.processTranscription(basePayload),
+    ).resolves.toBeUndefined();
+
+    // Pre-check ran with the right key
+    expect(transcriptExists).toHaveBeenCalledWith({
+      where: { audioAssetId: ASSET },
+    });
+
+    // No expensive external calls — saved $$ on retry
+    expect(deepgramTranscribe).not.toHaveBeenCalled();
+    expect(aiClassify).not.toHaveBeenCalled();
+
+    // No second-run side effects
+    expect(transcriptSave).not.toHaveBeenCalled();
+    expect(processRiskSignal).not.toHaveBeenCalled();
+    expect(broadcastTimelineEvent).not.toHaveBeenCalled();
+
+    // No incident_events INSERTed (manager.query never invoked here)
+    expect(managerQuery).not.toHaveBeenCalled();
+
+    // Warning logged for observability (so retry storms are detectable)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Transcript already exists'),
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 11. DEFENSE IN DEPTH: UNIQUE VIOLATION ON SAVE
+  // ─────────────────────────────────────────────────────────────
+  it('defense-in-depth: UniqueViolation on save short-circuits with no rethrow', async () => {
+    // Pre-check returns false (e.g. theoretical race between two
+    // retries — should not happen with BullMQ single-worker
+    // semantics, but defended defensively via the DB UNIQUE
+    // constraint that migration 004 added).
+    transcriptExists.mockResolvedValue(false);
+
+    deepgramTranscribe.mockResolvedValue({
+      text: 'help me',
+      confidence: 0.9,
+      language: 'en',
+    });
+    aiClassify.mockResolvedValue({
+      isDistress: true,
+      riskLevel: 'high',
+      confidence: 0.9,
+      summary: 'help requested',
+      signals: [
+        {
+          type: 'help_request',
+          confidence: 0.9,
+          description: 'help',
+          excerpt: 'help me',
+        },
+      ],
+    });
+
+    // transcriptRepo.save throws PostgreSQL UNIQUE violation
+    const uniqueErr: any = new Error(
+      'duplicate key value violates unique constraint "idx_transcripts_audio_unique"',
+    );
+    uniqueErr.code = '23505';
+    transcriptSave.mockRejectedValue(uniqueErr);
+
+    const warnSpy = jest
+      .spyOn((audioService as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    // Pipeline must complete without rethrowing
+    await expect(
+      audioService.processTranscription(basePayload),
+    ).resolves.toBeUndefined();
+
+    // The save was attempted (got past pre-check, paid Deepgram + AI)
+    expect(transcriptSave).toHaveBeenCalledTimes(1);
+
+    // But subsequent side effects DID NOT run
+    expect(processRiskSignal).not.toHaveBeenCalled();
+    expect(broadcastTimelineEvent).not.toHaveBeenCalled();
+
+    // Asset NOT transitioned to COMPLETED (we exited before that step)
+    expect(assetUpdate).not.toHaveBeenCalledWith(ASSET, {
+      transcriptionStatus: TranscriptionStatus.COMPLETED,
+    });
+
+    // Warning logged for observability
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('UniqueViolation'),
     );
   });
 });
