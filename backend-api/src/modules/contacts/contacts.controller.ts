@@ -6,7 +6,6 @@ import {
   Delete,
   Body,
   Param,
-  UseGuards,
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
@@ -17,7 +16,6 @@ import {
   ApiOperation,
   ApiResponse,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/request-context';
 import { ContactsService } from './contacts.service';
@@ -27,7 +25,7 @@ import { TrustedContact } from './entities/trusted-contact.entity';
 
 @ApiTags('Contacts')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+// Auth: protected by global APP_GUARD (JwtAuthGuard) registered in app.module.ts
 @Controller('contacts')
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}

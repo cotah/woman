@@ -4,7 +4,6 @@ import {
   Patch,
   Post,
   Body,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -14,7 +13,6 @@ import {
   ApiOperation,
   ApiResponse,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/request-context';
 import { SettingsService } from './settings.service';
@@ -24,7 +22,7 @@ import { EmergencySettings } from './entities/emergency-settings.entity';
 
 @ApiTags('Settings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+// Auth: protected by global APP_GUARD (JwtAuthGuard) registered in app.module.ts
 @Controller('settings')
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}

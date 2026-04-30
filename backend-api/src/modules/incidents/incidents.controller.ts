@@ -5,7 +5,6 @@ import {
   Param,
   Body,
   Query,
-  UseGuards,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
@@ -18,7 +17,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
   CurrentUserPayload,
@@ -34,7 +32,7 @@ import { IncidentStatus, TriggerType } from './entities/incident.entity';
 
 @ApiTags('Incidents')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+// Auth: protected by global APP_GUARD (JwtAuthGuard) registered in app.module.ts
 @SkipThrottle() // Safety-critical: emergency endpoints must never be rate-limited
 @Controller('incidents')
 export class IncidentsController {

@@ -3,7 +3,6 @@ import {
   Get,
   Param,
   Query,
-  UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import {
@@ -13,7 +12,6 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
   CurrentUserPayload,
@@ -22,7 +20,7 @@ import { TimelineService } from './timeline.service';
 
 @ApiTags('Timeline')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+// Auth: protected by global APP_GUARD (JwtAuthGuard) registered in app.module.ts
 @Controller('incidents/:id/timeline')
 export class TimelineController {
   constructor(private readonly timelineService: TimelineService) {}
