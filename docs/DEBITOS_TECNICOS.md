@@ -27,6 +27,26 @@ Formato:
 
 ---
 
+### Convenção `@Req` vs `@CurrentUser` inconsistente
+
+- **Local:** `tracking.controller.ts` usa `@Req() req: RequestWithUser`; resto do projeto usa `@CurrentUser() user: AuthenticatedUser`.
+- **Sintoma:** outlier de convenção. Não bloqueia funcionalidade, mas confunde leitor que esperaria padrão único.
+- **Fix proposto:** refator de `tracking.controller.ts` pros 9 endpoints usarem `@CurrentUser()`. ~30 min.
+- **Quando:** quando alguém estiver mexendo em `tracking.controller.ts` por outro motivo.
+- **Descoberto durante:** PR 1B do lint sweep (`e149010`, 2026-04-30).
+
+---
+
+### `JwtAuthGuard` com nomes idênticos em paths diferentes
+
+- **Sintoma:** 2 classes `JwtAuthGuard` no projeto: `src/common/guards/jwt-auth.guard.ts` (versão completa com `IS_PUBLIC_KEY`/Reflector) e `src/modules/auth/guards/jwt-auth.guard.ts` (apenas `extends AuthGuard('jwt')`). Pode ser dead code (uma não usada) ou duplicação intencional.
+- **Risco:** confusão de import em refactor futuro; possível dead code não detectado.
+- **Fix proposto:** investigar callers de cada uma. Se uma não tem callers, remover. Se ambas em uso, renomear pra distinguir propósito.
+- **Esforço estimado:** 30-60 min.
+- **Descoberto durante:** PR 1B do lint sweep (`e149010`, 2026-04-30).
+
+---
+
 ### IncidentGateway inerte (resolvido em Fix 2 do pipeline)
 
 - **Descoberto durante:** registro do AudioProcessor (Fix 2 do pipeline-fix).
