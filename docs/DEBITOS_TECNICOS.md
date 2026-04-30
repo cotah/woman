@@ -12,26 +12,6 @@ Formato:
 
 ---
 
-### Convenção `@Req` vs `@CurrentUser` inconsistente
-
-- **Local:** `tracking.controller.ts` usa `@Req() req: RequestWithUser`; resto do projeto usa `@CurrentUser() user: AuthenticatedUser`.
-- **Sintoma:** outlier de convenção. Não bloqueia funcionalidade, mas confunde leitor que esperaria padrão único.
-- **Fix proposto:** refator de `tracking.controller.ts` pros 9 endpoints usarem `@CurrentUser()`. ~30 min.
-- **Quando:** quando alguém estiver mexendo em `tracking.controller.ts` por outro motivo.
-- **Descoberto durante:** PR 1B do lint sweep (`e149010`, 2026-04-30).
-
----
-
-### IncidentGateway inerte (resolvido em Fix 2 do pipeline)
-
-- **Descoberto durante:** registro do AudioProcessor (Fix 2 do pipeline-fix).
-- **Sintoma em prod até descoberta:** mobile tenta conectar `wss://.../incidents` → handshake falha ou timeout → reconnect loop perpétuo → eventos `incident:update`, `timeline:event`, `contact:response` NUNCA chegam à tela da usuária em situação de emergência.
-- **Causa:** gateway declarado como classe (`src/websocket/incident.gateway.ts`), NestJS pode instanciar, mas nunca registrado como provider de módulo, então o transport WebSocket não é vinculado.
-- **Origem:** mesmo initial commit `3f547a6` — padrão recorrente de "boilerplate incompleto".
-- **Resolvido:** criação do `WebsocketModule` dedicado em `src/websocket/websocket.module.ts`, registrando `IncidentGateway` como provider e exportando-o. Importado pelo `AudioModule` (consumidor direto via AudioProcessor) e pelo `AppModule` (defensive wiring).
-
----
-
 ## Decisões Arquiteturais Documentadas
 
 Escolhas conscientes que NÃO são bugs nem débito técnico, mas trade-offs que merecem registro pra futuro reviewer entender que foram avaliadas.
@@ -111,3 +91,15 @@ Escolhas conscientes que NÃO são bugs nem débito técnico, mas trade-offs que
   - PR 2 (`b41106d`): 5 warnings — SDK responses (S3 Readable, Deepgram local interface, Firebase Messaging, Twilio).
   
   115 warnings em test/ resolvidos via override ESLint específico — decisão arquitetural documentada (ver seção dedicada acima). Sweep B totalmente fechado: lint 149 → 0 warnings, exit 0.
+
+### IncidentGateway inerte (descoberto e resolvido em Fix 2 do pipeline)
+
+- **Registrado em:** `f33c2fe` (Fix 2 do pipeline-fix, 2026-04-28). Origem do bug: initial commit `3f547a6` — padrão "boilerplate incompleto" (gateway declarado como classe mas nunca registrado como provider de módulo).
+- **Resolvido em:** `f33c2fe` (mesmo commit que descobriu — fix sincrônico).
+- **Como:** criação do `WebsocketModule` dedicado em `src/websocket/websocket.module.ts`, registrando `IncidentGateway` como provider e exportando-o. Importado pelo `AudioModule` (consumidor direto via AudioProcessor) e pelo `AppModule` (defensive wiring). Sintoma pré-fix: mobile tentava conectar `wss://.../incidents`, handshake falhava ou dava timeout, reconnect loop perpétuo, eventos `incident:update` / `timeline:event` / `contact:response` NUNCA chegavam à tela da usuária em situação de emergência.
+
+### Convenção `@Req` vs `@CurrentUser` inconsistente
+
+- **Registrado em:** `78f141a` (durante PR 1B, 2026-04-30).
+- **Resolvido em:** `dd6d2e7` (2026-04-30).
+- **Como:** `tracking.controller.ts` refatorado pra `@CurrentUser() user: AuthenticatedUser` (9 endpoints). Alinha com convenção dominante do projeto (rest of controllers já usavam esse padrão). Comportamento idêntico, sem mudança de runtime — mesmo objeto user injetado pelo guard JWT, só muda o decorator que extrai. `auth.controller.ts` e `users.controller.ts` mantidos como estão (já usavam `@CurrentUser()`).
