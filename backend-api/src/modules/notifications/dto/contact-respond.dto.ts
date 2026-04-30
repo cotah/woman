@@ -1,5 +1,6 @@
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ContactResponseType } from '../entities/contact-response.entity';
 
 export class ContactRespondDto {
   @ApiProperty({
@@ -19,7 +20,7 @@ export class ContactRespondDto {
     'calling_authorities',
     'marked_reviewed',
   ])
-  responseType: string;
+  responseType: ContactResponseType;
 
   @ApiPropertyOptional({
     description: 'Optional note from the contact',

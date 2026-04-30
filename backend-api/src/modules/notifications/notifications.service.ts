@@ -122,7 +122,7 @@ export class NotificationsService {
 
     // Mark queued deliveries as failed/cancelled
     await this.deliveryRepo.update(
-      { incidentId, status: In(['queued']) as any },
+      { incidentId, status: 'queued' },
       { status: 'failed', failureReason: 'Incident resolved before dispatch', failedAt: new Date() },
     );
   }
@@ -171,7 +171,7 @@ export class NotificationsService {
             incidentId,
             contactId: contact.id,
             channel,
-            status: In(['delivered', 'sending']) as any,
+            status: In(['delivered', 'sending']),
           },
         });
         if (existing) continue;
@@ -283,7 +283,7 @@ export class NotificationsService {
     const response = this.responseRepo.create({
       incidentId,
       contactId,
-      responseType: dto.responseType as any,
+      responseType: dto.responseType,
       note: dto.note || null,
       respondedAt: new Date(),
     });
