@@ -529,7 +529,7 @@ export class NotificationsService {
   private async createIncidentEvent(
     incidentId: string,
     type: string,
-    payload: Record<string, any>,
+    payload: Record<string, unknown>,
   ): Promise<void> {
     // Use a raw query to insert into incident_events to avoid circular module deps.
     // In a full setup this would go through an EventEmitter or dedicated timeline service.

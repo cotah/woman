@@ -19,7 +19,7 @@ export interface TimelineEntry {
   /** Human-readable summary */
   summary: string;
   /** Full data payload */
-  data: Record<string, any>;
+  data: Record<string, unknown>;
   /** Whether this entry is internal (hidden from the client/contacts) */
   isInternal: boolean;
 }

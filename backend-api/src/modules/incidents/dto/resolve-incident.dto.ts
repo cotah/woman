@@ -39,7 +39,7 @@ export class AddEventDto {
 
   @ApiPropertyOptional({ description: 'Event payload data' })
   @IsOptional()
-  payload?: Record<string, any>;
+  payload?: Record<string, unknown>;
 
   @ApiPropertyOptional({ description: 'Event source identifier' })
   @IsOptional()

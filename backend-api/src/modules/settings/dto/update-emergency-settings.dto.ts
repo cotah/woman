@@ -66,7 +66,7 @@ export class UpdateEmergencySettingsDto {
   @ApiPropertyOptional({ type: 'array', example: [] })
   @IsOptional()
   @IsArray()
-  triggerConfigurations?: Record<string, any>[];
+  triggerConfigurations?: Record<string, unknown>[];
 
   @ApiPropertyOptional({ example: 'I need help. This is an emergency alert from SafeCircle.' })
   @IsOptional()

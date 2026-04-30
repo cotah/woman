@@ -45,13 +45,13 @@ export class IncidentTranscript {
   language: string;
 
   @Column({ name: 'distress_signals', type: 'jsonb', default: '[]' })
-  distressSignals: any[];
+  distressSignals: unknown[];
 
   @Column({ name: 'ai_summary', type: 'text', nullable: true })
   aiSummary: string | null;
 
   @Column({ name: 'ai_risk_indicators', type: 'jsonb', nullable: true, default: '[]' })
-  aiRiskIndicators: any[];
+  aiRiskIndicators: unknown[];
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

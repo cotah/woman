@@ -149,7 +149,7 @@ export class IncidentsController {
   async processSignal(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { type: string; payload?: Record<string, any> },
+    @Body() body: { type: string; payload?: Record<string, unknown> },
   ) {
     return this.incidentsService.processRiskSignal(id, user.id, {
       type: body.type,

@@ -55,7 +55,7 @@ export class IncidentEvent {
   timestamp: Date;
 
   @Column({ type: 'jsonb', default: {} })
-  payload: Record<string, any>;
+  payload: Record<string, unknown>;
 
   @Column({ type: 'varchar', length: 100, default: 'system' })
   source: string;

@@ -639,7 +639,7 @@ export class AudioService {
   private async createIncidentEvent(
     incidentId: string,
     type: string,
-    payload: Record<string, any>,
+    payload: Record<string, unknown>,
   ): Promise<void> {
     try {
       await this.audioAssetRepo.manager.query(

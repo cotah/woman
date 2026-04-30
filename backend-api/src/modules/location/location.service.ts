@@ -133,7 +133,7 @@ export class LocationService {
   private async createIncidentEvent(
     incidentId: string,
     type: string,
-    payload: Record<string, any>,
+    payload: Record<string, unknown>,
   ): Promise<void> {
     try {
       await this.locationRepo.manager.query(

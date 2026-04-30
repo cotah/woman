@@ -27,7 +27,7 @@ export class FeatureFlag {
   phase: number;
 
   @Column({ type: 'jsonb', default: '{}' })
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

@@ -77,7 +77,7 @@ export class EmergencySettings {
   enableTestMode: boolean;
 
   @Column({ type: 'jsonb', name: 'trigger_configurations', default: '[]' })
-  triggerConfigurations: Record<string, any>[];
+  triggerConfigurations: Record<string, unknown>[];
 
   @Column({
     type: 'text',

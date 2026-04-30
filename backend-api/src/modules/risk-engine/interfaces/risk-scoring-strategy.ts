@@ -7,7 +7,7 @@ export interface RiskSignal {
   /** Signal type identifier matching a rule_id in the rules config */
   type: string;
   /** Arbitrary payload data associated with the signal */
-  payload: Record<string, any>;
+  payload: Record<string, unknown>;
 }
 
 /**

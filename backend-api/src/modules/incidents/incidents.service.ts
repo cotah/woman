@@ -622,7 +622,7 @@ export class IncidentsService {
   private async appendEvent(
     incidentId: string,
     type: IncidentEventType,
-    payload: Record<string, any> = {},
+    payload: Record<string, unknown> = {},
     source = 'system',
     isInternal = false,
   ): Promise<IncidentEvent> {

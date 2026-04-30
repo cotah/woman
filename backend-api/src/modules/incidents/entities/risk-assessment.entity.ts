@@ -48,7 +48,7 @@ export class RiskAssessment {
   signalType: string;
 
   @Column({ name: 'signal_payload', type: 'jsonb', default: {} })
-  signalPayload: Record<string, any>;
+  signalPayload: Record<string, unknown>;
 
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
   timestamp: Date;

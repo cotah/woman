@@ -16,7 +16,7 @@ import { JwtPayload } from '@/common/interfaces/request-context';
 
 export interface IncidentUpdatePayload {
   incidentId: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 @WebSocketGateway({
@@ -112,7 +112,7 @@ export class IncidentGateway
   // ── Server-side broadcast methods ──────────
   // These are called by services (not by clients) to push real-time updates.
 
-  broadcastIncidentUpdate(incidentId: string, data: Record<string, any>): void {
+  broadcastIncidentUpdate(incidentId: string, data: Record<string, unknown>): void {
     this.server
       .to(`incident:${incidentId}`)
       .emit('incident:update', { incidentId, ...data });
@@ -156,7 +156,7 @@ export class IncidentGateway
 
   broadcastTimelineEvent(
     incidentId: string,
-    event: { type: string; payload: Record<string, any>; timestamp: string },
+    event: { type: string; payload: Record<string, unknown>; timestamp: string },
   ): void {
     this.server
       .to(`incident:${incidentId}`)
