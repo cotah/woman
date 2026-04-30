@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { messaging } from 'firebase-admin';
 import {
   NotificationProvider,
   NotificationRecipient,
@@ -12,7 +13,7 @@ import {
 export class PushProvider implements NotificationProvider {
   readonly channel = 'push' as const;
   private readonly logger = new Logger(PushProvider.name);
-  private messaging: any;
+  private messaging?: messaging.Messaging;
 
   constructor(private readonly config: ConfigService) {
     this.initializeFirebase();

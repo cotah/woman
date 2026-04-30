@@ -1,3 +1,4 @@
+import { Readable } from 'stream';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -613,7 +614,7 @@ export class AudioService {
     });
 
     const response = await this.s3.send(command);
-    const stream = response.Body as any;
+    const stream = response.Body as Readable;
 
     // Collect stream into buffer
     const chunks: Buffer[] = [];

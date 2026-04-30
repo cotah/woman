@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Twilio } from 'twilio';
 import {
   NotificationProvider,
   NotificationRecipient,
@@ -12,7 +13,7 @@ import {
 export class SmsProvider implements NotificationProvider {
   readonly channel = 'sms' as const;
   private readonly logger = new Logger(SmsProvider.name);
-  private client: any;
+  private client?: Twilio;
   private readonly fromNumber: string;
 
   constructor(private readonly config: ConfigService) {

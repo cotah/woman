@@ -5,6 +5,19 @@ import {
   TranscriptionResult,
 } from './audio-analysis-provider.interface';
 
+/**
+ * Local view of a Deepgram word object — declares only the
+ * fields we consume from the API response. Deepgram is not
+ * installed as an SDK; this provider calls the HTTP API
+ * directly via fetch().
+ */
+interface DeepgramWord {
+  word: string;
+  start: number;
+  end: number;
+  confidence: number;
+}
+
 @Injectable()
 export class DeepgramProvider implements SpeechToTextProvider {
   readonly name = 'deepgram';
@@ -77,7 +90,7 @@ export class DeepgramProvider implements SpeechToTextProvider {
         return { text: '', confidence: 0, language, words: [] };
       }
 
-      const words = (alternative.words || []).map((w: any) => ({
+      const words = (alternative.words || []).map((w: DeepgramWord) => ({
         word: w.word,
         start: w.start,
         end: w.end,
