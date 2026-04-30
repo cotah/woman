@@ -6,7 +6,6 @@ import {
   Body,
   Param,
   Query,
-  Req,
   HttpCode,
   HttpStatus,
   BadRequestException,
@@ -14,7 +13,8 @@ import {
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { TrackingService } from './tracking.service';
-import { RequestWithUser } from '@/common/interfaces/request-context';
+import { CurrentUser } from '@/common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '@/common/interfaces/request-context';
 
 /**
  * Endpoints for 24/7 location tracking and learned places.
@@ -36,7 +36,7 @@ export class TrackingController {
   @HttpCode(HttpStatus.CREATED)
   @SkipThrottle()
   async addSnapshot(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Body()
     body: {
       latitude: number;
@@ -48,7 +48,7 @@ export class TrackingController {
     this.validateCoordinates(body.latitude, body.longitude);
 
     const snapshot = await this.trackingService.addSnapshot(
-      req.user.id,
+      user.id,
       body,
     );
 
@@ -63,7 +63,7 @@ export class TrackingController {
   @HttpCode(HttpStatus.CREATED)
   @SkipThrottle()
   async addSnapshotBatch(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Body()
     body: {
       locations: Array<{
@@ -86,7 +86,7 @@ export class TrackingController {
     }
 
     const count = await this.trackingService.addSnapshotBatch(
-      req.user.id,
+      user.id,
       body.locations,
     );
 
@@ -98,12 +98,12 @@ export class TrackingController {
    */
   @Get('track')
   async getSnapshots(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('hours') hours?: string,
     @Query('limit') limit?: string,
   ) {
     const snapshots = await this.trackingService.getSnapshots(
-      req.user.id,
+      user.id,
       {
         hours: hours ? parseInt(hours, 10) : 24,
         limit: limit ? parseInt(limit, 10) : 500,
@@ -117,9 +117,9 @@ export class TrackingController {
    * Get the latest location snapshot.
    */
   @Get('track/latest')
-  async getLatestSnapshot(@Req() req: RequestWithUser) {
+  async getLatestSnapshot(@CurrentUser() user: AuthenticatedUser) {
     const snapshot = await this.trackingService.getLatestSnapshot(
-      req.user.id,
+      user.id,
     );
 
     return snapshot ?? { message: 'No location data available' };
@@ -131,9 +131,9 @@ export class TrackingController {
    * Get all learned places for the current user.
    */
   @Get('places')
-  async getPlaces(@Req() req: RequestWithUser) {
+  async getPlaces(@CurrentUser() user: AuthenticatedUser) {
     const places = await this.trackingService.getPlaces(
-      req.user.id,
+      user.id,
     );
 
     return { count: places.length, places };
@@ -145,7 +145,7 @@ export class TrackingController {
   @Post('places/sync')
   @HttpCode(HttpStatus.OK)
   async syncPlaces(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Body()
     body: {
       places: Array<{
@@ -169,7 +169,7 @@ export class TrackingController {
     }
 
     const count = await this.trackingService.syncPlaces(
-      req.user.id,
+      user.id,
       body.places,
     );
 
@@ -181,12 +181,12 @@ export class TrackingController {
    */
   @Patch('places/:id/safe')
   async confirmPlaceSafe(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) placeId: string,
     @Body() body: { label?: string },
   ) {
     const place = await this.trackingService.confirmPlaceSafe(
-      req.user.id,
+      user.id,
       placeId,
       body.label,
     );
@@ -203,12 +203,12 @@ export class TrackingController {
    */
   @Patch('places/:id/flag')
   async flagPlace(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) placeId: string,
     @Body() body: { reason?: string },
   ) {
     const place = await this.trackingService.flagPlace(
-      req.user.id,
+      user.id,
       placeId,
       body.reason,
     );
@@ -229,7 +229,7 @@ export class TrackingController {
   @Post('geofence/events')
   @HttpCode(HttpStatus.CREATED)
   async logGeofenceEvent(
-    @Req() req: RequestWithUser,
+    @CurrentUser() user: AuthenticatedUser,
     @Body()
     body: {
       zoneId: string;
@@ -255,7 +255,7 @@ export class TrackingController {
 
     // Store as a location snapshot with geofence metadata
     const snapshot = await this.trackingService.addSnapshot(
-      req.user.id,
+      user.id,
       {
         latitude: body.latitude,
         longitude: body.longitude,
