@@ -41,4 +41,29 @@ export default [
       'no-console': 'off',
     },
   },
+  // ---------------------------------------------------
+  // Override: test files
+  //
+  // Mocks parciais com `: any` são padrão idiomático no
+  // ecossistema Jest + NestJS. Tipar mocks com
+  // Partial<Repository<X>>, jest.Mocked<X>, ou helpers
+  // custom adiciona ~300 linhas de boilerplate sem ganho
+  // de type safety real (testes validam comportamento de
+  // CHAMADA, não tipagem de retorno).
+  //
+  // Investigação documentada: Partial<Repository<X>>
+  // quebra em overloads de save/create e em
+  // .mockResolvedValue() (não existe na assinatura
+  // tipada do Repository real). Override é a decisão
+  // tecnicamente correta para esse contexto.
+  //
+  // Outras regras (no-unused-vars, no-console) seguem
+  // ativas em test/.
+  // ---------------------------------------------------
+  {
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
 ];
