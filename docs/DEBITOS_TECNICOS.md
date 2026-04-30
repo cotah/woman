@@ -22,16 +22,6 @@ Formato:
 
 ---
 
-### `JwtAuthGuard` com nomes idênticos em paths diferentes
-
-- **Sintoma:** 2 classes `JwtAuthGuard` no projeto: `src/common/guards/jwt-auth.guard.ts` (versão completa com `IS_PUBLIC_KEY`/Reflector) e `src/modules/auth/guards/jwt-auth.guard.ts` (apenas `extends AuthGuard('jwt')`). Pode ser dead code (uma não usada) ou duplicação intencional.
-- **Risco:** confusão de import em refactor futuro; possível dead code não detectado.
-- **Fix proposto:** investigar callers de cada uma. Se uma não tem callers, remover. Se ambas em uso, renomear pra distinguir propósito.
-- **Esforço estimado:** 30-60 min.
-- **Descoberto durante:** PR 1B do lint sweep (`e149010`, 2026-04-30).
-
----
-
 ### IncidentGateway inerte (resolvido em Fix 2 do pipeline)
 
 - **Descoberto durante:** registro do AudioProcessor (Fix 2 do pipeline-fix).
@@ -103,6 +93,12 @@ Escolhas conscientes que NÃO são bugs nem débito técnico, mas trade-offs que
 - **Registrado em:** `cac6a15` (Bug 8.a fix, 2026-04-28).
 - **Resolvido em:** `fe53fce` (last Major debt, 2026-04-29).
 - **Como:** três camadas de defesa adicionadas: (1) UNIQUE constraint em `incident_transcripts.audio_asset_id` via migration `004_unique_transcript_per_audio_asset.sql` (executada manualmente em prod via Railway dashboard, padrão do projeto com `synchronize:false`); (2) pre-check em `transcriptRepo.exists()` imediatamente após `assertOwnership`, antes de chamadas pagas (Deepgram/OpenAI) e mutação de status — preserva status terminal da run anterior em retry (FAILED ou COMPLETED); (3) try/catch defensivo ao redor de `transcriptRepo.save` com check de `error.code === '23505'` (UniqueViolation) para casos de pre-check perder (theoretical only — same job, single worker). 2 specs novos em `audio-pipeline.spec.ts` validam ambas as camadas. Test count 129 → 131. Zero duplicatas em prod confirmadas via SELECT antes do fix (pipeline só rodou end-to-end a partir de Fix 4 / `1e899bd`).
+
+### `JwtAuthGuard` duplicado em paths diferentes
+
+- **Registrado em:** `78f141a` (durante PR 1B, 2026-04-30).
+- **Resolvido em:** `26579bd` (2026-04-30).
+- **Como:** investigação revelou duplicação acidental, não dead code — versão trivial em `src/common/guards/jwt-auth.guard.ts` (5 linhas, apenas `extends AuthGuard('jwt')`) NÃO respeitava `@Public()`, criando bug latente em 4 controllers que importavam dela (`incidents`, `contacts`, `settings`, `timeline`). Se alguém adicionasse `@Public()` num desses, o decorator seria silenciosamente neutralizado: APP_GUARD global liberaria, mas o `@UseGuards(common/JwtAuthGuard)` continuaria exigindo JWT. Removido o arquivo da `common/`, removidos `@UseGuards` redundantes nos 4 controllers, com comment explicativo apontando que APP_GUARD global cobre. `auth.controller.ts` e `users.controller.ts` mantidos como estão (importam da versão completa, redundância inofensiva).
 
 ### Lint baseline com 149 warnings legacy
 
