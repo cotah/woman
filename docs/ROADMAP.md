@@ -117,12 +117,12 @@ Funcionalidades que aparecem em conversas/feedback/roadmap mas **não foram impl
 
 | Item | Esforço | Status atual | Detalhe |
 |---|---|---|---|
-| IncidentDetailScreen real (não mock) | 1-2 dias | Stub com mock hardcoded | Wire pra backend usando `incidentService.getIncident(id)` e `getTimeline(id)` que já existem. Sem isso, demo expõe dados falsos. |
+| IncidentDetailScreen real (não mock) | ~~1-2 dias~~ → **real: ~1h** | ✅ Fechado (commit `0d75d44`) | Wire pra backend usando `incidentService.getIncident(id)` e `getTimeline(id)`. Estimativa estourou pra menos: features auxiliares (Test/Coercion badges, mapping de 17 timeline types, parallel `Future.wait`) já couberam no escopo. 401 → 673 linhas. |
 | Push remoto FCM completo | 2-3 dias | Não existe | (1) Adicionar `firebase_messaging` ao pubspec.yaml, (2) criar projeto Firebase, (3) baixar configs (`google-services.json`, `GoogleService-Info.plist`), (4) implementar token registration no app, (5) criar endpoint backend `/users/me/devices` (atualmente declarado em `api_endpoints.dart` mas backend não tem). Sem isso, contatos não recebem push se app estiver fechado. |
-| Calculator screen com rota | 30 min - 2 h | Code pronto, sem rota | Decisão de produto pendente (vide §7.2). Recomendação preliminar: setting "Stealth Mode" liga/desliga, troca tela inicial via launcher trick OU navigation guard. |
+| Calculator screen com rota | ~~30 min - 2 h~~ → **real: ~half day** | ✅ Fechado (commit `464a5bc`) | Decisão de produto: **Caminho C** — preference default `true` + effective stealth derivado (preference AND `hasCoercionPin`) previne lock-out. Web bypassa stealth (admin panel). Session unlock previne redirect loop após PIN entry. 7 arquivos / ~518 linhas (vs estimativa original assumindo só "rota + setting"). Estouro veio do escopo real: serviço dedicado, screen de settings, step de onboarding, integração no router com kIsWeb + session lock. |
 | Voice biometrics decidido | 1 dia (UI) ou 3-5 dias (impl) | Promessa quebrada | Decisão de produto pendente (vide §7.1). Recomendação preliminar: opção B (UI honesta) pra Horizonte 1, A (implementar) pra Horizonte 2 ou 3. |
 
-**Total P0 demo blockers: 4-9 dias.**
+**Total P0 demo blockers: 4-9 dias originais.** 2 de 4 fechados em 2026-04-30 (gastaram ~7h no real). Restam Push FCM (2-3 dias) e Voice biometrics decidido (1-5 dias dependendo da escolha).
 
 ### 4.3 P1 — Polish da demo
 
@@ -356,6 +356,11 @@ Termos do projeto pra quem nunca viu:
 
 ## 9. Histórico de Atualizações
 
+- **2026-04-30 — v1.1** — 4 itens do Horizonte 1 fechados na mesma data:
+  - Build Android desugaring (commit `260b767`) — §4.1 P0 absoluto. Estimado 5min, real ~5min.
+  - `ENVIRONMENT` default por build mode (commit `caf635b`) — §4.1 P0 absoluto. Estimado 30min, real ~10min. Decisão Opção B confirmada (§7.3): `kReleaseMode ? 'staging' : 'dev'`.
+  - IncidentDetailScreen real (commit `0d75d44`) — §4.2 P0 demo blocker. Estimado 1-2 dias, real ~1h. Stub mock substituído por wire real ao backend, com Test/Coercion badges, mapping de 17 timeline types e `Future.wait` paralelo. 401 → 673 linhas.
+  - Calculator com rota / Stealth Mode (commit `464a5bc`) — §4.2 P0 demo blocker. Estimado 30min-2h, real ~half day. Decisão Opção C (não listada originalmente em §7.2, escolhida durante implementação): default `true` + effective stealth = preference AND `hasCoercionPin`, evitando lock-out. Web bypassa stealth (admin panel). Session unlock previne redirect loop. 7 arquivos / ~518 linhas. Validação local de runtime (build) deferida pra próxima sessão — patch validado apenas estaticamente.
 - **2026-04-30 — v1.0** — Documento criado, consolidando estado pós-sweep B do backend (zero débitos ativos) e auditoria completa do mobile-app/ Flutter (22 findings, [`AUDITORIA_FLUTTER_2026-04-30.md`](AUDITORIA_FLUTTER_2026-04-30.md)). Substitui `SafeCircle_Roadmap.docx` (11/Abril, severamente desatualizado).
 
 ---
