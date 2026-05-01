@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/services/stealth_mode_service.dart';
 import '../../core/utils/coercion_handler.dart';
 
 /// A functional calculator that serves as a disguise for the real app.
@@ -55,7 +56,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         final candidate = _digitSequence.substring(_digitSequence.length - len);
         final isPin = await coercionHandler.isCoercionPin(candidate);
         if (isPin) {
-          if (mounted) context.go('/home');
+          if (mounted) {
+            // Mark this session as unlocked so the router redirect lets
+            // /home through instead of bouncing us back to /calculator.
+            context.read<StealthModeService>().unlockForSession();
+            context.go('/home');
+          }
           return;
         }
       }

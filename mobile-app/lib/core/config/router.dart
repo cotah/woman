@@ -1,22 +1,27 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../auth/auth_service.dart';
 import '../auth/auth_state.dart';
+import '../services/stealth_mode_service.dart';
 import '../storage/secure_storage.dart';
+import '../utils/coercion_handler.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/contacts/contacts_screen.dart';
 import '../../features/contacts/add_contact_screen.dart';
+import '../../features/disguise/calculator_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/settings/emergency_settings_screen.dart';
 import '../../features/settings/coercion_pin_screen.dart';
 import '../../features/settings/audio_settings_screen.dart';
 import '../../features/settings/privacy_screen.dart';
+import '../../features/settings/stealth_settings_screen.dart';
 import '../../features/emergency/emergency_screen.dart';
 import '../../features/incidents/incident_history_screen.dart';
 import '../../features/incidents/incident_detail_screen.dart';
@@ -33,7 +38,18 @@ import '../../features/settings/geofence_settings_screen.dart';
 /// Builds the application router with auth-based redirects.
 ///
 /// Uses the existing [AuthService] and [AuthState] from core/auth.
-GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
+///
+/// Stealth Mode (mobile only): when [stealthService] reports an effective
+/// stealth state (preference enabled AND a Coercion PIN configured AND
+/// the session not yet unlocked), `/home` is rewritten to `/calculator`.
+/// On web (kIsWeb), stealth is ignored — the web build is the admin
+/// panel and always opens normally.
+GoRouter buildRouter(
+  AuthService authService, {
+  SecureStorage? secureStorage,
+  StealthModeService? stealthService,
+  CoercionHandler? coercionHandler,
+}) {
   // Track whether onboarding has been checked for this session/user
   String? onboardingCheckedForUser;
   bool onboardingComplete = false;
@@ -56,6 +72,8 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       if (!authState.isAuthenticated) {
         onboardingCheckedForUser = null; // Reset on logout
         onboardingComplete = false;
+        // Logout also re-locks any prior stealth session unlock.
+        stealthService?.lockSession();
         return authPaths.contains(path) ? null : '/auth/login';
       }
 
@@ -80,6 +98,19 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       if (onboardingComplete &&
           (path == '/splash' || path.startsWith('/auth/'))) {
         return '/home';
+      }
+
+      // Stealth Mode: rewrite /home -> /calculator when effective.
+      // Mobile only — web build is the admin panel and ignores stealth.
+      if (!kIsWeb &&
+          onboardingComplete &&
+          path == '/home' &&
+          stealthService != null &&
+          coercionHandler != null) {
+        final hasPin = await coercionHandler.hasCoercionPin();
+        if (stealthService.isEffectivelyEnabled(hasCoercionPin: hasPin)) {
+          return '/calculator';
+        }
       }
 
       return null;
@@ -141,6 +172,16 @@ GoRouter buildRouter(AuthService authService, {SecureStorage? secureStorage}) {
       GoRoute(
         path: '/settings/coercion-pin',
         builder: (context, state) => const CoercionPinScreen(),
+      ),
+      GoRoute(
+        path: '/settings/stealth',
+        builder: (context, state) => const StealthSettingsScreen(),
+      ),
+
+      // Calculator disguise (stealth mode)
+      GoRoute(
+        path: '/calculator',
+        builder: (context, state) => const CalculatorScreen(),
       ),
       GoRoute(
         path: '/settings/audio',

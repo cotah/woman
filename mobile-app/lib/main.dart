@@ -19,6 +19,7 @@ import 'core/services/location_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/settings_service.dart';
 import 'core/services/journey_service.dart';
+import 'core/services/stealth_mode_service.dart';
 import 'core/services/websocket_service.dart';
 import 'core/services/offline_queue_service.dart';
 import 'core/services/sms_fallback_service.dart';
@@ -68,6 +69,11 @@ void main() async {
   final secureStorage = SecureStorage();
   final apiClient = ApiClient(secureStorage: secureStorage);
 
+  // StealthModeService must be initialized before runApp so the router
+  // can read [prefersStealthMode] synchronously during the first redirect.
+  final stealthService = StealthModeService();
+  await stealthService.initialize();
+
   // If Sentry DSN is configured, wrap the app with crash reporting.
   // Otherwise, run normally (e.g. during local development).
   if (_sentryDsn.isNotEmpty) {
@@ -83,12 +89,14 @@ void main() async {
       appRunner: () => runApp(SafeCircleApp(
         secureStorage: secureStorage,
         apiClient: apiClient,
+        stealthService: stealthService,
       )),
     );
   } else {
     runApp(SafeCircleApp(
       secureStorage: secureStorage,
       apiClient: apiClient,
+      stealthService: stealthService,
     ));
   }
 }
@@ -96,11 +104,13 @@ void main() async {
 class SafeCircleApp extends StatefulWidget {
   final SecureStorage secureStorage;
   final ApiClient apiClient;
+  final StealthModeService stealthService;
 
   const SafeCircleApp({
     super.key,
     required this.secureStorage,
     required this.apiClient,
+    required this.stealthService,
   });
 
   @override
@@ -216,7 +226,12 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _themeNotifier = ThemeNotifier();
 
     // Initialize router with real feature screens.
-    _router = buildRouter(_authService, secureStorage: widget.secureStorage);
+    _router = buildRouter(
+      _authService,
+      secureStorage: widget.secureStorage,
+      stealthService: widget.stealthService,
+      coercionHandler: _coercionHandler,
+    );
 
     // ── CRITICAL: these two calls MUST always run ──────────────────
     // Wrapped in their own try-catch as a final safety net.
@@ -395,6 +410,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         Provider.value(value: widget.apiClient),
         Provider.value(value: widget.secureStorage),
         Provider.value(value: _coercionHandler),
+        ChangeNotifierProvider.value(value: widget.stealthService),
         ChangeNotifierProvider.value(value: _themeNotifier),
       ],
       child: Consumer<ThemeNotifier>(

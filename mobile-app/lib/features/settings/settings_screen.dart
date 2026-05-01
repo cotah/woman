@@ -35,6 +35,12 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => context.push('/settings/coercion-pin'),
           ),
           _SettingsTile(
+            icon: Icons.visibility_off_outlined,
+            title: 'Stealth Mode',
+            subtitle: 'Disguise app as a calculator',
+            onTap: () => context.push('/settings/stealth'),
+          ),
+          _SettingsTile(
             icon: Icons.mic_outlined,
             title: 'Audio & recording',
             subtitle: 'Consent, AI analysis, sharing',

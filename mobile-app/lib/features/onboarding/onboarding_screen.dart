@@ -13,6 +13,7 @@ import '../../core/services/background_service.dart';
 import '../../core/services/contacts_service.dart';
 import '../../core/services/location_tracker_service.dart';
 import '../../core/services/settings_service.dart';
+import '../../core/services/stealth_mode_service.dart';
 import '../../core/storage/secure_storage.dart';
 import 'permissions_step.dart';
 import 'voice_activation_step.dart';
@@ -20,10 +21,11 @@ import 'voice_activation_step.dart';
 /// Multi-step onboarding flow:
 /// 0 - Welcome
 /// 1 - Permissions (location, notifications, microphone)
-/// 2 - Voice activation setup (custom word + voice recording)
-/// 3 - Add first trusted contact
-/// 4 - Set emergency message
-/// 5 - Completion
+/// 2 - Stealth mode opt-in (disguise app as calculator)
+/// 3 - Voice activation setup (custom word + voice recording)
+/// 4 - Add first trusted contact
+/// 5 - Set emergency message
+/// 6 - Completion
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -35,12 +37,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     with WidgetsBindingObserver {
   final _pageController = PageController();
   int _currentStep = 0;
-  static const _totalSteps = 6;
+  static const _totalSteps = 7;
 
   // Permission state
   bool _locationGranted = false;
   bool _notificationsGranted = false;
   bool _microphoneGranted = false;
+
+  // Stealth mode opt-in (defaults to true — protective default)
+  bool _stealthModeEnabled = true;
 
   // Contact form
   final _contactNameController = TextEditingController();
@@ -256,6 +261,16 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         await storage.setActivationWord(_activationWord);
       }
 
+      // Persist stealth mode preference. Effective stealth still requires
+      // a Coercion PIN (handled at runtime by StealthModeService); the
+      // user is prompted to set one later in Settings if needed.
+      try {
+        final stealthService = context.read<StealthModeService>();
+        await stealthService.setPrefersStealthMode(_stealthModeEnabled);
+      } catch (e) {
+        debugPrint('[Onboarding] Failed to save stealth preference: $e');
+      }
+
       // Persist voice sample paths so they survive app restarts
       if (_voiceRecordingPaths.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
@@ -355,6 +370,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         onRequest: _requestMicrophone,
                       ),
                     ],
+                    onContinue: _nextStep,
+                  ),
+                  _StealthModeStep(
+                    onChanged: (value) =>
+                        setState(() => _stealthModeEnabled = value),
                     onContinue: _nextStep,
                   ),
                   VoiceActivationStep(
@@ -483,7 +503,100 @@ class _WelcomeStep extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────
-// Step 2: Add first contact
+// Step 2: Stealth mode opt-in
+// ─────────────────────────────────────────────────────────
+
+class _StealthModeStep extends StatelessWidget {
+  final ValueChanged<bool> onChanged;
+  final VoidCallback onContinue;
+
+  const _StealthModeStep({
+    required this.onChanged,
+    required this.onContinue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        children: [
+          const Spacer(flex: 1),
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Icon(
+              Icons.visibility_off_outlined,
+              size: 48,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 32),
+          Text(
+            'Hide the app?',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Some women need to hide this app from someone close to them.\n\n'
+            'If you turn this on, SafeCircle will appear as a calculator. '
+            'You can still open the real app by typing your Coercion PIN. '
+            'You can set the PIN later in Settings.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.4,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const Spacer(flex: 2),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton(
+              onPressed: () {
+                onChanged(true);
+                onContinue();
+              },
+              child: const Text('Yes, hide the app'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: OutlinedButton(
+              onPressed: () {
+                onChanged(false);
+                onContinue();
+              },
+              child: const Text('No, keep it visible'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'You can change this anytime in Settings.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Step 3: Add first contact
 // ─────────────────────────────────────────────────────────
 
 class _AddContactStep extends StatelessWidget {
@@ -582,7 +695,7 @@ class _AddContactStep extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────
-// Step 3: Emergency message
+// Step 4: Emergency message
 // ─────────────────────────────────────────────────────────
 
 class _EmergencyMessageStep extends StatelessWidget {
@@ -654,7 +767,7 @@ class _EmergencyMessageStep extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────
-// Step 4: Completion
+// Step 6: Completion
 // ─────────────────────────────────────────────────────────
 
 class _CompletionStep extends StatelessWidget {
