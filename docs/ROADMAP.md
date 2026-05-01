@@ -108,10 +108,10 @@ Funcionalidades que aparecem em conversas/feedback/roadmap mas **não foram impl
 
 | Item | Esforço | Status atual | Detalhe |
 |---|---|---|---|
-| Build Android desugaring | **5 min** | Não fixado | 5 linhas em `android/app/build.gradle.kts` (`isCoreLibraryDesugaringEnabled = true` + dependency `desugar_jdk_libs:2.1.4`). Sem isso, app não compila nem em debug. |
-| `ENVIRONMENT=staging` como default em mobile | 30 min | Default = `dev` | Mudar default em `main.dart:52` OU sempre passar `--dart-define=ENVIRONMENT=staging` em build script. Sem isso, build release aponta pra `localhost:3000` silenciosamente. |
+| Build Android desugaring | **5 min** | ✅ Fechado (commit `260b767`) | 5 linhas em `android/app/build.gradle.kts` (`isCoreLibraryDesugaringEnabled = true` + dependency `desugar_jdk_libs:2.1.4`). Sem isso, app não compila nem em debug. |
+| `ENVIRONMENT=staging` como default em mobile | 30 min | ✅ Fechado (commit `caf635b`) | Resolvido via Opção B (§7.3): `kReleaseMode ? 'staging' : 'dev'` em `main.dart`. Release builds apontam pra Railway por padrão; debug continua em localhost. |
 
-**Total P0 absoluto: ~35 minutos.** É trivial mas bloqueia tudo.
+**Total P0 absoluto: ~35 minutos.** ✅ Ambos fechados em 2026-04-30.
 
 ### 4.2 P0 — Demo Blockers
 
