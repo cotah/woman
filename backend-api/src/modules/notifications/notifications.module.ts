@@ -9,6 +9,7 @@ import { VoiceProvider } from './providers/voice.provider';
 import { AlertDelivery } from './entities/alert-delivery.entity';
 import { ContactResponse } from './entities/contact-response.entity';
 import { ContactsModule } from '../contacts/contacts.module';
+import { UsersModule } from '../users/users.module';
 import { AlertDispatchProcessor } from '../../queue/alert-dispatch.processor';
 
 @Module({
@@ -16,6 +17,7 @@ import { AlertDispatchProcessor } from '../../queue/alert-dispatch.processor';
     TypeOrmModule.forFeature([AlertDelivery, ContactResponse]),
     BullModule.registerQueue({ name: 'alert-dispatch' }),
     forwardRef(() => ContactsModule),
+    UsersModule,
   ],
   controllers: [NotificationsController],
   providers: [

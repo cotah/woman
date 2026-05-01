@@ -15,8 +15,28 @@ export class PushProvider implements NotificationProvider {
   private readonly logger = new Logger(PushProvider.name);
   private messaging?: messaging.Messaging;
 
+  /**
+   * Optional hook called when FCM rejects a token as invalid /
+   * not-registered. Wired from NotificationsModule so that
+   * UsersService can mark the offending device inactive without
+   * creating a circular dependency in the type graph.
+   */
+  private invalidTokenHandler?: (token: string) => Promise<void> | void;
+
   constructor(private readonly config: ConfigService) {
     this.initializeFirebase();
+  }
+
+  /**
+   * Register a callback that runs whenever FCM rejects a push token
+   * with messaging/registration-token-not-registered or
+   * messaging/invalid-registration-token. Called once at module
+   * bootstrap (see NotificationsModule).
+   */
+  setInvalidTokenHandler(
+    handler: (token: string) => Promise<void> | void,
+  ): void {
+    this.invalidTokenHandler = handler;
   }
 
   private initializeFirebase(): void {
@@ -138,6 +158,17 @@ export class PushProvider implements NotificationProvider {
         error.code === 'messaging/registration-token-not-registered' ||
         error.code === 'messaging/invalid-registration-token'
       ) {
+        // Best-effort notify upstream so the device can be marked
+        // inactive. Failures here must never bubble back to the caller.
+        if (this.invalidTokenHandler && recipient.pushToken) {
+          try {
+            await this.invalidTokenHandler(recipient.pushToken);
+          } catch (cleanupError) {
+            this.logger.warn(
+              `invalidTokenHandler failed: ${cleanupError.message}`,
+            );
+          }
+        }
         return {
           success: false,
           error: `Invalid push token: ${error.code}`,

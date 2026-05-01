@@ -60,6 +60,19 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- FCM: route incoming push notifications to the emergency
+             channel created by NotificationService. Without this,
+             system uses "Misc" with low importance. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="emergency_channel" />
+
+        <!-- FCM: notification icon used when the message has no
+             explicit icon. Falls back to launcher icon. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
     </application>
 
     <queries>

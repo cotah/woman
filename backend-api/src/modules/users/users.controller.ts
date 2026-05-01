@@ -2,8 +2,11 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Delete,
   Body,
+  Param,
+  ParseUUIDPipe,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -23,6 +26,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '@/common/interfaces/request-context';
 import { UsersService } from './users.service';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 
 class UpdateProfileDto {
   @ApiPropertyOptional({ example: 'Jane' })
@@ -104,5 +108,50 @@ export class UsersController {
   @ApiResponse({ status: 204, description: 'Account deleted' })
   async deleteMe(@CurrentUser() user: AuthenticatedUser): Promise<void> {
     await this.usersService.softDelete(user.id);
+  }
+
+  // ────────────────────────────────────────────────────────
+  // Device registration (FCM / APNs push tokens)
+  // ────────────────────────────────────────────────────────
+
+  @Post('me/devices')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Register or refresh a device for push notifications',
+    description:
+      'Idempotent UPSERT keyed on (userId, pushToken). Mobile app calls this on login, after FCM token rotation, or after onboarding.',
+  })
+  @ApiResponse({ status: 200, description: 'Device registered' })
+  async registerDevice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RegisterDeviceDto,
+  ) {
+    const device = await this.usersService.registerDevice({
+      userId: user.id,
+      platform: dto.platform,
+      pushToken: dto.pushToken,
+      deviceModel: dto.deviceModel,
+      osVersion: dto.osVersion,
+      appVersion: dto.appVersion,
+    });
+    return {
+      id: device.id,
+      platform: device.platform,
+      isActive: device.isActive,
+      lastSeenAt: device.lastSeenAt,
+      createdAt: device.createdAt,
+      updatedAt: device.updatedAt,
+    };
+  }
+
+  @Delete('me/devices/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remove a registered device' })
+  @ApiResponse({ status: 204, description: 'Device removed' })
+  async deleteDevice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) deviceId: string,
+  ): Promise<void> {
+    await this.usersService.deleteDevice(user.id, deviceId);
   }
 }

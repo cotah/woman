@@ -695,11 +695,31 @@ export class IncidentsService {
           );
         }
 
+        // Best-effort lookup of a push token for this contact: if their
+        // phone number matches a registered SafeCircle user, fetch the
+        // most-recent active device's push token. SMS-only contacts
+        // simply leave pushToken undefined and the dispatcher skips
+        // the push channel for them.
+        let pushToken: string | undefined;
+        if (contact.canReceivePush && contact.phone) {
+          try {
+            pushToken =
+              (await this.usersService.findActivePushTokenByPhone(
+                contact.phone,
+              )) ?? undefined;
+          } catch (error) {
+            this.logger.debug(
+              `Phone-match lookup failed for contact ${contact.id}: ${error.message}`,
+            );
+          }
+        }
+
         contactInfos.push({
           id: contact.id,
           name: contact.name,
           phone: contact.phone,
           email: contact.email ?? undefined,
+          pushToken,
           priority: contact.priority,
           locale: contact.locale || 'en',
           canReceiveSms: contact.canReceiveSms,

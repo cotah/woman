@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "78625778867",
+    "project_id": "woman-5ccfc",
+    "storage_bucket": "woman-5ccfc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:78625778867:android:73fe23d36f99d4ac96d4c6",
+        "android_client_info": {
+          "package_name": "com.safecircle.safecircle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDEmmIdqVpNcDmKS6ZGGBGz9E-EofepwLU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kReleaseMode;
@@ -14,6 +15,7 @@ import 'core/auth/auth_service.dart';
 import 'core/auth/auth_state.dart';
 import 'core/services/audio_service.dart';
 import 'core/services/contacts_service.dart';
+import 'core/services/fcm_service.dart';
 import 'core/services/incident_service.dart';
 import 'core/services/location_service.dart';
 import 'core/services/notification_service.dart';
@@ -34,6 +36,7 @@ import 'core/models/location_update.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_notifier.dart';
 import 'core/utils/coercion_handler.dart';
+import 'firebase_options.dart';
 
 /// Sentry DSN injected at build time via --dart-define=SENTRY_DSN=...
 /// If not provided, Sentry is disabled (no crashes are reported).
@@ -68,6 +71,17 @@ void main() async {
   // Core singletons.
   final secureStorage = SecureStorage();
   final apiClient = ApiClient(secureStorage: secureStorage);
+
+  // Firebase must be initialized before any FirebaseMessaging call.
+  // Wrapped in try/catch so a misconfigured Firebase build never blocks
+  // the app from reaching login.
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('[Main] Firebase init failed: $e — push will be disabled');
+  }
 
   // StealthModeService must be initialized before runApp so the router
   // can read [prefersStealthMode] synchronously during the first redirect.
@@ -123,6 +137,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   late final AudioService _audioService;
   late final WebSocketService _webSocketService;
   late final NotificationService _notificationService;
+  late final FcmService _fcmService;
   late final IncidentService _incidentService;
   late final CoercionHandler _coercionHandler;
   late final JourneyService _journeyService;
@@ -143,17 +158,35 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     super.initState();
 
     // ── ESSENTIAL services (app cannot function without these) ──────
+    // NotificationService and FcmService are constructed first so
+    // AuthService can fire the registerWithBackend hook on login.
+    _notificationService =
+        NotificationService(secureStorage: widget.secureStorage);
+
+    _fcmService = FcmService(
+      apiClient: widget.apiClient,
+      secureStorage: widget.secureStorage,
+      notificationService: _notificationService,
+    );
+    // Initialize listeners synchronously (Firebase already done in main).
+    // Token fetch + backend register is deferred to post-authentication
+    // via the AuthService.onAuthenticated callback below.
+    try { _fcmService.initialize(); }
+    catch (e) { debugPrint('[Main] FcmService init failed: $e'); }
+
     _authService = AuthService(
       apiClient: widget.apiClient,
       secureStorage: widget.secureStorage,
+      // Register the device with the backend whenever the user
+      // transitions into the authenticated state. FcmService also
+      // re-registers on its own when FCM rotates the token.
+      onAuthenticated: () => _fcmService.registerWithBackend(),
     );
 
     _locationService = LocationService(apiClient: widget.apiClient);
     _audioService = AudioService(apiClient: widget.apiClient);
     _webSocketService =
         WebSocketService(secureStorage: widget.secureStorage);
-    _notificationService =
-        NotificationService(secureStorage: widget.secureStorage);
 
     _incidentService = IncidentService(
       apiClient: widget.apiClient,
@@ -252,6 +285,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _locationService.dispose();
     _audioService.dispose();
     _webSocketService.dispose();
+    _fcmService.dispose();
     _incidentService.dispose();
     _journeyService.dispose();
     _backgroundService.dispose();
@@ -396,6 +430,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         ChangeNotifierProvider.value(value: _audioService),
         ChangeNotifierProvider.value(value: _webSocketService),
         ChangeNotifierProvider.value(value: _notificationService),
+        ChangeNotifierProvider.value(value: _fcmService),
         ChangeNotifierProvider.value(value: _incidentService),
         ChangeNotifierProvider.value(value: _journeyService),
         ChangeNotifierProvider.value(value: _settingsService),

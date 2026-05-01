@@ -23,9 +23,20 @@ class AuthService extends ChangeNotifier {
   /// Assumed access token TTL if not provided by backend (in minutes).
   static const int _defaultTokenTtlMinutes = 15;
 
+  /// Callback invoked once on the rising edge of authentication
+  /// (unauthenticated → authenticated). Used by [main.dart] to trigger
+  /// FCM device registration with the backend after login,
+  /// auto-login, and registration. Called from [_setState] so all
+  /// success paths fire it consistently.
+  ///
+  /// Errors raised by the callback are swallowed — the auth flow must
+  /// not be derailed by a downstream side effect failure.
+  final VoidCallback? onAuthenticated;
+
   AuthService({
     required ApiClient apiClient,
     required SecureStorage secureStorage,
+    this.onAuthenticated,
   })  : _apiClient = apiClient,
         _secureStorage = secureStorage;
 
@@ -211,8 +222,20 @@ class AuthService extends ChangeNotifier {
   // ── Private helpers ─────────────────────────────
 
   void _setState(AuthState newState) {
+    final wasAuthenticated = _state.isAuthenticated;
     _state = newState;
     notifyListeners();
+
+    // Rising edge of authentication: fire the post-login hook exactly
+    // once per session. Auto-login, login, and register all funnel
+    // through here.
+    if (!wasAuthenticated && newState.isAuthenticated) {
+      try {
+        onAuthenticated?.call();
+      } catch (e) {
+        debugPrint('[Auth] onAuthenticated callback threw: $e');
+      }
+    }
   }
 
   Future<void> _storeTokens(Map<String, dynamic> data) async {

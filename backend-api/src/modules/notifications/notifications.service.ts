@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -14,6 +14,7 @@ import {
   NotificationRecipient,
 } from './providers/notification-provider.interface';
 import { ContactRespondDto } from './dto/contact-respond.dto';
+import { UsersService } from '../users/users.service';
 
 /** Wave configuration: which priorities and channels per wave. */
 interface WaveConfig {
@@ -30,7 +31,7 @@ const DEFAULT_WAVE_CONFIG: WaveConfig[] = [
 ];
 
 @Injectable()
-export class NotificationsService {
+export class NotificationsService implements OnModuleInit {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly providerMap: Map<AlertChannel, NotificationProvider>;
 
@@ -44,12 +45,24 @@ export class NotificationsService {
     private readonly smsProvider: SmsProvider,
     private readonly pushProvider: PushProvider,
     private readonly voiceProvider: VoiceProvider,
+    private readonly usersService: UsersService,
   ) {
     this.providerMap = new Map<AlertChannel, NotificationProvider>([
       ['sms', this.smsProvider],
       ['push', this.pushProvider],
       ['voice_call', this.voiceProvider],
     ]);
+  }
+
+  /**
+   * Wire the PushProvider's invalid-token hook to the UsersService.
+   * Done at module init (rather than constructor) so both providers
+   * are fully constructed before the wiring runs.
+   */
+  onModuleInit(): void {
+    this.pushProvider.setInvalidTokenHandler(async (token: string) => {
+      await this.usersService.markDeviceInactiveByToken(token);
+    });
   }
 
   // ------------------------------------------------------------------
@@ -326,21 +339,44 @@ export class NotificationsService {
   /**
    * Send a safety check-in push notification to the user.
    * Asks "Are you okay?" with options to respond yes/no.
+   *
+   * Looks up the user's most recently active device to populate the
+   * push token. If no active device is found, the call is a no-op
+   * (logged as warning) — the journey will fall back to SMS-based
+   * check-ins if configured elsewhere.
    */
   async sendSafetyCheckin(userId: string, journeyId: string): Promise<void> {
-    this.logger.log(`Sending safety check-in push to user ${userId} for journey ${journeyId}`);
+    this.logger.log(
+      `Sending safety check-in push to user ${userId} for journey ${journeyId}`,
+    );
+
+    const device = await this.usersService.findMostRecentActiveDevice(userId);
+    if (!device || !device.pushToken) {
+      this.logger.warn(
+        `No active device with push token for user ${userId}; safety check-in skipped`,
+      );
+      return;
+    }
 
     try {
       await this.pushProvider.send(
-        { contactId: userId, name: 'User', locale: 'en' },
+        {
+          contactId: userId,
+          name: 'User',
+          locale: 'en',
+          pushToken: device.pushToken,
+        },
         {
           incidentId: journeyId,
           userName: 'SafeCircle',
-          message: 'Your journey timer has ended. Are you okay? Open the app to respond.',
+          message:
+            'Your journey timer has ended. Are you okay? Open the app to respond.',
         },
       );
     } catch (error) {
-      this.logger.warn(`Safety check-in push failed for user ${userId}: ${error.message}`);
+      this.logger.warn(
+        `Safety check-in push failed for user ${userId}: ${error.message}`,
+      );
     }
   }
 
@@ -362,11 +398,29 @@ export class NotificationsService {
     );
 
     for (const contact of contacts) {
+      // Best-effort: contact may already carry a pushToken (passed in
+      // by callers that already resolved it), otherwise look up via
+      // phone match for SafeCircle users in the contact role.
+      let pushToken = contact.pushToken;
+      if (!pushToken && contact.phone) {
+        try {
+          pushToken =
+            (await this.usersService.findActivePushTokenByPhone(
+              contact.phone,
+            )) ?? undefined;
+        } catch (error) {
+          this.logger.debug(
+            `Phone-match lookup failed for contact ${contact.id}: ${error.message}`,
+          );
+        }
+      }
+
       const recipient = {
         contactId: contact.id,
         name: contact.name,
         phone: contact.phone,
         email: contact.email,
+        pushToken,
         locale: contact.locale,
       };
 
@@ -376,13 +430,15 @@ export class NotificationsService {
         message,
       };
 
-      try {
-        await this.pushProvider.send(recipient, payload);
-        this.logger.log(`Arrival push sent to contact ${contact.id}`);
-      } catch (error) {
-        this.logger.warn(
-          `Arrival push failed for contact ${contact.id}: ${error.message}`,
-        );
+      if (pushToken) {
+        try {
+          await this.pushProvider.send(recipient, payload);
+          this.logger.log(`Arrival push sent to contact ${contact.id}`);
+        } catch (error) {
+          this.logger.warn(
+            `Arrival push failed for contact ${contact.id}: ${error.message}`,
+          );
+        }
       }
 
       // Also send SMS if the contact has a phone number

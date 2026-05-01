@@ -2,20 +2,24 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../storage/secure_storage.dart';
 
-/// Local notification setup and FCM token management.
+/// Local notification rendering (Android channels + iOS critical alerts).
+///
+/// Push token management lives in [FcmService]. When a remote push
+/// arrives in the foreground, [FcmService] forwards the message here
+/// via [showEmergencyNotification] / [showNotification] so a banner is
+/// rendered consistently with locally-triggered notifications.
 class NotificationService extends ChangeNotifier {
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
+  // ignore: unused_field
   final SecureStorage _secureStorage;
 
   bool _initialized = false;
-  String? _fcmToken;
 
   NotificationService({required SecureStorage secureStorage})
       : _secureStorage = secureStorage;
 
   bool get isInitialized => _initialized;
-  String? get fcmToken => _fcmToken;
 
   /// Initialize local notifications plugin.
   Future<void> initialize() async {
@@ -45,19 +49,6 @@ class NotificationService extends ChangeNotifier {
 
     _initialized = true;
     notifyListeners();
-  }
-
-  /// Store the FCM token for push notification registration.
-  Future<void> setFcmToken(String token) async {
-    _fcmToken = token;
-    await _secureStorage.setFcmToken(token);
-    notifyListeners();
-  }
-
-  /// Retrieve the stored FCM token.
-  Future<String?> getFcmToken() async {
-    _fcmToken ??= await _secureStorage.getFcmToken();
-    return _fcmToken;
   }
 
   /// Show a local notification for an emergency alert.
