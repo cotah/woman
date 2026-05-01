@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -47,9 +48,15 @@ void main() async {
   ]);
 
   // Initialize environment config.
-  // Environment is set via --dart-define=ENVIRONMENT=dev|staging|prod
-  // Defaults to prod for release safety.
-  const envName = String.fromEnvironment('ENVIRONMENT', defaultValue: 'dev');
+  // Environment is set via --dart-define=ENVIRONMENT=dev|staging|prod.
+  // Default depends on build mode:
+  //   - Release builds default to 'staging' (Railway backend) — safe for prod APKs/IPAs
+  //   - Debug builds default to 'dev' (localhost/10.0.2.2)
+  // Override anytime via --dart-define=ENVIRONMENT=...
+  const envName = String.fromEnvironment(
+    'ENVIRONMENT',
+    defaultValue: kReleaseMode ? 'staging' : 'dev',
+  );
   final env = switch (envName) {
     'dev' => Environment.dev,
     'staging' => Environment.staging,
