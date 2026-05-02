@@ -235,8 +235,17 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     try { _learnedPlacesService.initialize(); }
     catch (e) { debugPrint('[Main] LearnedPlacesService init failed: $e'); }
 
+    // Voiceprint must be constructed BEFORE VoiceDetectionService so it can
+    // be passed in as a dependency. initialize() is fire-and-forget; the
+    // detector's own init reads loadProfile() on its own clock and falls
+    // back to "requires enrollment" if the profile isn't ready yet.
+    _voiceprintService = VoiceprintService(secureStorage: widget.secureStorage);
+    try { _voiceprintService.initialize(); }
+    catch (e) { debugPrint('[Main] VoiceprintService init failed: $e'); }
+
     _voiceDetectionService = VoiceDetectionService(
       secureStorage: widget.secureStorage,
+      voiceprintService: _voiceprintService,
     );
     // Wire voice activation → auto-trigger emergency SOS
     _voiceDetectionService.onActivationDetected = () {
@@ -245,14 +254,6 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     };
     try { _voiceDetectionService.initialize(); }
     catch (e) { debugPrint('[Main] VoiceDetectionService init failed: $e'); }
-
-    // Voiceprint engine (Phase 1: load + warmup only). If model fails to
-    // load, voice biometrics is unavailable for the session but the rest
-    // of the app keeps working — VoiceDetectionService will still match
-    // by activation word alone until Phase 2 wires the verifier in.
-    _voiceprintService = VoiceprintService(secureStorage: widget.secureStorage);
-    try { _voiceprintService.initialize(); }
-    catch (e) { debugPrint('[Main] VoiceprintService init failed: $e'); }
 
     _geofenceService = GeofenceService(
       tracker: _locationTrackerService,

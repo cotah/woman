@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:intl_phone_field/phone_number.dart';
@@ -52,9 +51,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   String _contactPhone = '';
   bool _isSavingContact = false;
 
-  // Voice activation
+  // Voice activation. Enrollment (PCM samples → embedding → SecureStorage)
+  // happens inside VoiceActivationStep itself; only the activation word
+  // needs to bubble up to be persisted alongside the other onboarding state.
   String _activationWord = '';
-  List<String> _voiceRecordingPaths = [];
 
   // Emergency message
   final _emergencyMessageController = TextEditingController(
@@ -271,15 +271,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         debugPrint('[Onboarding] Failed to save stealth preference: $e');
       }
 
-      // Persist voice sample paths so they survive app restarts
-      if (_voiceRecordingPaths.isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setStringList(
-            'safecircle_voice_samples', _voiceRecordingPaths);
-        debugPrint('[Onboarding] Saved ${_voiceRecordingPaths.length} '
-            'voice samples to permanent storage');
-      }
-
       // Start always-on background service — the user authorized this
       // by completing onboarding (consent is given in the completion step)
       final backgroundService = context.read<BackgroundService>();
@@ -295,9 +286,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     if (mounted) context.go('/home');
   }
 
-  void _onVoiceComplete(String word, List<String> paths) {
+  void _onVoiceComplete(String word) {
+    // Voice biometrics enrollment already happened inside VoiceActivationStep
+    // (samples were processed by VoiceprintService.enroll and the resulting
+    // profile saved to SecureStorage). We only need the word here.
     _activationWord = word;
-    _voiceRecordingPaths = paths;
     _nextStep();
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../storage/secure_storage.dart';
+import 'voiceprint_service.dart';
 
 /// Continuous voice detection service — SILENT operation.
 ///
@@ -36,6 +38,12 @@ import '../storage/secure_storage.dart';
 /// - The user can disable this at any time in Settings
 class VoiceDetectionService extends ChangeNotifier {
   final SecureStorage _secureStorage;
+  final VoiceprintService _voiceprintService;
+
+  /// Legacy SharedPreferences key written by the pre-voiceprint onboarding
+  /// flow (a list of paths to AAC .m4a samples that no production code has
+  /// ever read). Cleaned up oneshot on first init after this build.
+  static const String _legacySamplesKey = 'safecircle_voice_samples';
 
   /// speech_to_text — used ONLY on Android.
   final SpeechToText _speech = SpeechToText();
@@ -55,6 +63,13 @@ class VoiceDetectionService extends ChangeNotifier {
   double _confidence = 0.0;
   Timer? _restartTimer;
   bool _audioSessionConfigured = false;
+
+  /// True when the user has an activation word saved but no compatible
+  /// voiceprint enrolled (e.g. legacy install before voice biometrics
+  /// shipped, or a model upgrade invalidated the old profile). The
+  /// detector stays disabled until [VoiceprintService.enroll] runs again.
+  /// Settings UI surfaces this as a "re-train your voice" banner.
+  bool _requiresEnrollment = false;
 
   /// How similar the spoken word must be to the activation word (0.0 to 1.0).
   static const double _matchThreshold = 0.70;
@@ -85,13 +100,23 @@ class VoiceDetectionService extends ChangeNotifier {
   String get activationWord => _activationWord;
   String get lastRecognized => _lastRecognized;
   double get confidence => _confidence;
+  bool get requiresEnrollment => _requiresEnrollment;
 
-  VoiceDetectionService({required SecureStorage secureStorage})
-      : _secureStorage = secureStorage;
+  VoiceDetectionService({
+    required SecureStorage secureStorage,
+    required VoiceprintService voiceprintService,
+  })  : _secureStorage = secureStorage,
+        _voiceprintService = voiceprintService;
 
   /// Initialize the service — check if enabled and load activation word.
   Future<void> initialize() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Best-effort cleanup of legacy AAC voice samples written by the
+      // pre-voiceprint onboarding flow. Idempotent: noop after first run.
+      await _cleanupLegacySamples(prefs);
+
       // Load activation word
       _activationWord = await _secureStorage.getActivationWord() ?? '';
       if (_activationWord.isEmpty) {
@@ -99,8 +124,22 @@ class VoiceDetectionService extends ChangeNotifier {
         return;
       }
 
+      // Voiceprint enrollment guard: if the user has an activation word but
+      // no compatible voiceprint profile (legacy install, or model upgrade
+      // invalidated the old profile), keep detection disabled until they
+      // re-enroll. Settings UI shows a banner inviting re-training.
+      final profile = await _voiceprintService.loadProfile();
+      if (profile == null) {
+        _requiresEnrollment = true;
+        debugPrint(
+          '[VoiceDetection] Activation word found but no voiceprint enrolled '
+          '— detection disabled until re-enrollment',
+        );
+        notifyListeners();
+        return;
+      }
+
       // Check if enabled
-      final prefs = await SharedPreferences.getInstance();
       _isEnabled = prefs.getBool(_enabledKey) ?? false;
 
       if (_useNativeRecognizer) {
@@ -457,6 +496,40 @@ class VoiceDetectionService extends ChangeNotifier {
         }
       },
     );
+  }
+
+  // ── Legacy cleanup ───────────────────────────────────────────────
+
+  /// Deletes the AAC .m4a voice samples written by the pre-voiceprint
+  /// onboarding flow (and clears the SharedPreferences key that pointed
+  /// to them). The samples were never used by any production code path
+  /// — they're orphan files leaking ~80 KB of biometric audio per user.
+  ///
+  /// Best-effort: missing files, permission errors, and other I/O issues
+  /// are swallowed silently. Idempotent: after the first successful run
+  /// the SharedPreferences key is removed and subsequent calls return
+  /// immediately.
+  Future<void> _cleanupLegacySamples(SharedPreferences prefs) async {
+    final samples = prefs.getStringList(_legacySamplesKey);
+    if (samples == null || samples.isEmpty) return;
+
+    int deleted = 0;
+    for (final path in samples) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+          deleted++;
+        }
+      } catch (_) {
+        // Ignore — best-effort cleanup.
+      }
+    }
+
+    await prefs.remove(_legacySamplesKey);
+    if (deleted > 0) {
+      debugPrint('[VoiceDetection] Cleaned up $deleted legacy voice samples');
+    }
   }
 
   @override

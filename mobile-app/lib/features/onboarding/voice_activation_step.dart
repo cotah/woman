@@ -1,17 +1,31 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 
+import '../../core/services/voiceprint_service.dart';
+import '../../core/utils/wav_pcm_reader.dart';
+
 /// Onboarding step where the user:
-/// 1. Chooses a custom activation word/phrase
-/// 2. Records their voice saying it 3 times for calibration
-/// 3. The recordings are stored locally for future voice recognition
+/// 1. Chooses a custom activation word/phrase.
+/// 2. Records their voice saying it 3 times for voiceprint enrollment.
+/// 3. SafeCircle's on-device speaker verification model learns their voice
+///    so future detections can verify it's really them speaking.
+///
+/// The 3 PCM samples are deleted from disk immediately after the embedding
+/// is computed and saved.
 class VoiceActivationStep extends StatefulWidget {
   final VoidCallback onContinue;
   final VoidCallback onSkip;
-  final void Function(String word, List<String> recordingPaths) onComplete;
+
+  /// Called only after enrollment succeeds. Carries just the activation word
+  /// — the embedding is already persisted in SecureStorage by VoiceprintService.
+  final void Function(String word) onComplete;
 
   const VoiceActivationStep({
     super.key,
@@ -33,6 +47,9 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
 
   bool _isRecording = false;
   bool _wordConfirmed = false;
+  bool _isProcessing = false;
+  bool _enrollSucceeded = false;
+  String? _enrollError;
   int _recordingSeconds = 0;
   Timer? _timer;
 
@@ -98,19 +115,21 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
         return;
       }
 
-      // Save to permanent app directory (not /tmp/ which gets cleaned)
+      // Save to permanent app directory (not /tmp/ which gets cleaned).
+      // Format: 16 kHz mono PCM 16-bit — matches the FBANK pipeline the
+      // VoiceprintService.extractEmbedding expects.
       String recordPath = '';
       if (!kIsWeb) {
         final appDir = await getApplicationDocumentsDirectory();
         recordPath =
-            '${appDir.path}/activation_voice_${_recordingPaths.length + 1}.m4a';
+            '${appDir.path}/activation_voice_${_recordingPaths.length + 1}.pcm';
       }
 
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          sampleRate: 44100,
-          bitRate: 128000,
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
         ),
         path: recordPath,
       );
@@ -156,13 +175,97 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
         });
 
         if (_recordingPaths.length >= _requiredRecordings) {
-          widget.onComplete(_wordController.text.trim(), _recordingPaths);
+          _processEnrollment();
         }
       }
     } catch (e) {
       debugPrint('[VoiceActivation] Stop error: $e');
       setState(() => _isRecording = false);
     }
+  }
+
+  /// Read the 3 PCM files, run voiceprint enrollment, persist the profile,
+  /// and clean up the audio. UX feedback is driven by [_isProcessing],
+  /// [_enrollSucceeded], and [_enrollError].
+  Future<void> _processEnrollment() async {
+    setState(() {
+      _isProcessing = true;
+      _enrollError = null;
+    });
+
+    final voiceprint = context.read<VoiceprintService>();
+
+    if (!voiceprint.isReady) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _enrollError =
+            'Voice biometrics unavailable. Please restart the app.';
+      });
+      return;
+    }
+
+    try {
+      final samples = <Int16List>[];
+      for (final path in _recordingPaths) {
+        samples.add(await readPcm16k(File(path)));
+      }
+
+      await voiceprint.enroll(samples);
+
+      // Privacy: delete PCM samples immediately. Embedding is what's kept.
+      for (final path in _recordingPaths) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _enrollSucceeded = true;
+      });
+    } on ArgumentError catch (e) {
+      // Bad/empty/short recording — guide user to a quieter spot.
+      debugPrint('[VoiceActivation] Enrollment ArgumentError: $e');
+      _setEnrollError(
+        "We couldn't learn your voice from those recordings. "
+        "Try again in a quieter spot?",
+      );
+    } on StateError catch (e) {
+      debugPrint('[VoiceActivation] Enrollment StateError: $e');
+      _setEnrollError(
+        'Voice biometrics unavailable. Please restart the app.',
+      );
+    } catch (e, stack) {
+      debugPrint('[VoiceActivation] Enrollment failed: $e\n$stack');
+      _setEnrollError('Something went wrong. Try again?');
+    }
+  }
+
+  void _setEnrollError(String msg) {
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = false;
+      _enrollError = msg;
+    });
+  }
+
+  /// Reset to a fresh recording state (called from "Record again" after
+  /// an enrollment error). Cleans up any partial PCM files first.
+  Future<void> _resetForRetry() async {
+    for (final path in _recordingPaths) {
+      try {
+        await File(path).delete();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _recordingPaths.clear();
+      _enrollError = null;
+      _enrollSucceeded = false;
+      _isProcessing = false;
+    });
   }
 
   void _resetRecordings() {
@@ -179,54 +282,79 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
     final remaining = _requiredRecordings - _recordingPaths.length;
     final allDone = remaining <= 0;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-
-          // Hero section with gradient icon
-          _buildHeroHeader(theme),
-
-          const SizedBox(height: 12),
-
-          Text(
-            _wordConfirmed
-                ? 'Say your word clearly'
-                : 'Set your safe word',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
+    return PopScope(
+      canPop: !_isProcessing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isProcessing) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please wait — SafeCircle is learning your voice...',
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _wordConfirmed
-                ? 'We need $_requiredRecordings recordings to learn your unique voice pattern.'
-                : 'Choose a word or short phrase that will silently trigger '
-                    'an emergency alert just with your voice.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          );
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: [
+            const SizedBox(height: 16),
+            _buildHeroHeader(theme),
+            const SizedBox(height: 12),
+            Text(
+              _headerTitle,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-
-          // Main content area
-          Expanded(
-            child: SingleChildScrollView(
-              child: !_wordConfirmed
-                  ? _buildWordInput(theme)
-                  : _buildRecordingUI(theme, remaining, allDone),
+            const SizedBox(height: 8),
+            Text(
+              _headerSubtitle,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-
-          // Bottom buttons
-          _buildBottomButtons(theme, allDone),
-          const SizedBox(height: 16),
-        ],
+            const SizedBox(height: 24),
+            Expanded(
+              child: SingleChildScrollView(
+                child: !_wordConfirmed
+                    ? _buildWordInput(theme)
+                    : _buildRecordingUI(theme, remaining, allDone),
+              ),
+            ),
+            _buildBottomButtons(theme, allDone),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
+  }
+
+  String get _headerTitle {
+    if (!_wordConfirmed) return 'Set your safe word';
+    if (_enrollError != null) return 'Hmm, that didn\'t work';
+    if (_enrollSucceeded) return 'Voice learned!';
+    if (_isProcessing) return 'Learning your voice...';
+    return 'Say your safe word';
+  }
+
+  String get _headerSubtitle {
+    if (!_wordConfirmed) {
+      return 'Choose a word or short phrase that will silently trigger '
+          'an emergency alert just with your voice.';
+    }
+    if (_enrollError != null) return _enrollError!;
+    if (_enrollSucceeded) {
+      return 'SafeCircle will verify it\'s you before triggering an alert.';
+    }
+    if (_isProcessing) {
+      return 'SafeCircle is creating your voice profile from the 3 recordings.';
+    }
+    return 'Say your safe word 3 times naturally. SafeCircle will learn '
+        'your voice and use it to verify it\'s really you.';
   }
 
   Widget _buildHeroHeader(ThemeData theme) {
@@ -301,8 +429,9 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Your voice becomes a silent SOS. If you say this word, '
-                      'SafeCircle will send your location and alert your contacts.',
+                      'Your voice becomes a silent SOS. SafeCircle learns '
+                      'your voice so only you can trigger the alert — '
+                      'not someone else who happens to say the word.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -402,84 +531,24 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
         ),
         const SizedBox(height: 28),
 
-        // Recording progress indicators
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(_requiredRecordings, (index) {
-            final isDone = index < _recordingPaths.length;
-            final isCurrent = index == _recordingPaths.length;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Column(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    width: isCurrent && _isRecording ? 56 : 48,
-                    height: isCurrent && _isRecording ? 56 : 48,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isDone
-                          ? theme.colorScheme.primary
-                          : isCurrent && _isRecording
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.surfaceContainerHighest,
-                      boxShadow: [
-                        if (isDone)
-                          BoxShadow(
-                            color: theme.colorScheme.primary
-                                .withValues(alpha: 0.3),
-                            blurRadius: 8,
-                            spreadRadius: 1,
-                          ),
-                        if (isCurrent && _isRecording)
-                          BoxShadow(
-                            color: theme.colorScheme.error
-                                .withValues(alpha: 0.4),
-                            blurRadius: 12,
-                            spreadRadius: 2,
-                          ),
-                      ],
-                    ),
-                    child: isDone
-                        ? Icon(Icons.check_rounded,
-                            color: theme.colorScheme.onPrimary, size: 24)
-                        : isCurrent && _isRecording
-                            ? Icon(Icons.mic,
-                                color: theme.colorScheme.onError, size: 24)
-                            : Text(
-                                '${index + 1}',
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    isDone
-                        ? 'Done'
-                        : isCurrent && _isRecording
-                            ? '${_recordingSeconds}s'
-                            : 'Rec ${index + 1}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: isDone
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurfaceVariant,
-                      fontWeight: isDone ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ),
+        // Progress indicators 1/2/3 (always visible — context for the user)
+        _buildIndicators(theme),
         const SizedBox(height: 32),
 
-        // Big record button with animated rings
-        if (!allDone)
-          _buildRecordButton(theme)
+        // Center widget — depends on state
+        if (_isProcessing)
+          _buildProcessingState(theme)
+        else if (_enrollSucceeded)
+          _buildSuccessState(theme)
+        else if (_enrollError != null)
+          _buildErrorState(theme)
+        else if (allDone)
+          // Defensive: if all done but no terminal state, kick processing.
+          // Should not normally render — _stopRecording triggers
+          // _processEnrollment which sets _isProcessing immediately.
+          const SizedBox.shrink()
         else
-          _buildSuccessState(theme),
+          _buildRecordButton(theme),
 
         if (!allDone && !_isRecording)
           Padding(
@@ -505,7 +574,10 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
             ),
           ),
 
-        if (_recordingPaths.isNotEmpty && !_isRecording && !allDone)
+        if (_recordingPaths.isNotEmpty &&
+            !_isRecording &&
+            !allDone &&
+            !_isProcessing)
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: TextButton.icon(
@@ -515,6 +587,79 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildIndicators(ThemeData theme) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(_requiredRecordings, (index) {
+        final isDone = index < _recordingPaths.length;
+        final isCurrent = index == _recordingPaths.length;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Column(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: isCurrent && _isRecording ? 56 : 48,
+                height: isCurrent && _isRecording ? 56 : 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDone
+                      ? theme.colorScheme.primary
+                      : isCurrent && _isRecording
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.surfaceContainerHighest,
+                  boxShadow: [
+                    if (isDone)
+                      BoxShadow(
+                        color: theme.colorScheme.primary
+                            .withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    if (isCurrent && _isRecording)
+                      BoxShadow(
+                        color: theme.colorScheme.error
+                            .withValues(alpha: 0.4),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
+                  ],
+                ),
+                child: isDone
+                    ? Icon(Icons.check_rounded,
+                        color: theme.colorScheme.onPrimary, size: 24)
+                    : isCurrent && _isRecording
+                        ? Icon(Icons.mic,
+                            color: theme.colorScheme.onError, size: 24)
+                        : Text(
+                            '${index + 1}',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                isDone
+                    ? 'Done'
+                    : isCurrent && _isRecording
+                        ? '${_recordingSeconds}s'
+                        : 'Rec ${index + 1}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: isDone
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: isDone ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 
@@ -568,6 +713,30 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
     );
   }
 
+  Widget _buildProcessingState(ThemeData theme) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 88,
+          height: 88,
+          child: CircularProgressIndicator(
+            strokeWidth: 4,
+            valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Building your voice profile',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
   Widget _buildSuccessState(ThemeData theme) {
     return Column(
       children: [
@@ -598,18 +767,41 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
         ),
         const SizedBox(height: 16),
         Text(
-          'Voice recorded!',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'SafeCircle will learn to recognize your unique voice pattern.',
+          'Profile saved on this device only',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
           textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildErrorState(ThemeData theme) {
+    return Column(
+      children: [
+        Container(
+          width: 88,
+          height: 88,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: theme.colorScheme.errorContainer,
+          ),
+          child: Icon(
+            Icons.error_outline_rounded,
+            size: 48,
+            color: theme.colorScheme.onErrorContainer,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: FilledButton.tonalIcon(
+            onPressed: _resetForRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Record again'),
+          ),
         ),
       ],
     );
@@ -629,22 +821,24 @@ class _VoiceActivationStepState extends State<VoiceActivationStep>
               label: const Text('Confirm word'),
             ),
           ),
-        ] else if (allDone) ...[
+        ] else if (_enrollSucceeded) ...[
           SizedBox(
             width: double.infinity,
             height: 56,
             child: FilledButton.icon(
-              onPressed: widget.onContinue,
+              onPressed: () => widget.onComplete(_wordController.text.trim()),
               icon: const Icon(Icons.arrow_forward_rounded),
               label: const Text('Continue'),
             ),
           ),
         ],
         const SizedBox(height: 8),
-        TextButton(
-          onPressed: widget.onSkip,
-          child: const Text('Skip for now'),
-        ),
+        // Skip stays available unless we're mid-processing.
+        if (!_isProcessing)
+          TextButton(
+            onPressed: widget.onSkip,
+            child: const Text('Skip for now'),
+          ),
       ],
     );
   }
