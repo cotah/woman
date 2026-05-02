@@ -76,6 +76,13 @@ infrastructure/docker/pgdata/
 infrastructure/docker/redisdata/
 infrastructure/docker/miniodata/
 
+# ── Python (tools/voiceprint) ────────────────────
+tools/.venv/
+tools/__pycache__/
+tools/*.pyc
+tools/cache/
+tools/*.onnx
+
 # ── Misc ─────────────────────────────────────────
 *.tgz
 .cache/
