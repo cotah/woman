@@ -250,7 +250,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     // load, voice biometrics is unavailable for the session but the rest
     // of the app keeps working — VoiceDetectionService will still match
     // by activation word alone until Phase 2 wires the verifier in.
-    _voiceprintService = VoiceprintService();
+    _voiceprintService = VoiceprintService(secureStorage: widget.secureStorage);
     try { _voiceprintService.initialize(); }
     catch (e) { debugPrint('[Main] VoiceprintService init failed: $e'); }
 
