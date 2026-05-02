@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
@@ -71,6 +72,45 @@ class VoiceDetectionService extends ChangeNotifier {
   /// detector stays disabled until [VoiceprintService.enroll] runs again.
   /// Settings UI surfaces this as a "re-train your voice" banner.
   bool _requiresEnrollment = false;
+
+  // ── Android parallel audio buffer (Phase 5 / Path A) ────────────────
+  //
+  // Android's SpeechRecognizer (used by speech_to_text) opens the mic.
+  // We try to also open `record`'s PCM stream in parallel, capturing the
+  // same audio for voiceprint analysis. Whether this works depends on
+  // the OEM (Samsung One UI, Xiaomi MIUI, OnePlus OxygenOS, etc) — many
+  // devices treat the mic as exclusive and one of the two consumers will
+  // fail or get silent audio. If we detect that, we stop the parallel
+  // stream and fall back to the iOS-equivalent silent-skip behavior.
+  // Phase 5b would replace this with a fully-native Kotlin pipeline if
+  // Path A is empirically unreliable in the field.
+
+  final AudioRecorder _bufferRecorder = AudioRecorder();
+  StreamSubscription<Uint8List>? _bufferSubscription;
+  bool _bufferStreamActive = false;
+  Timer? _bufferHealthTimer;
+  DateTime? _lastBufferChunkAt;
+
+  /// Sliding window of the most recent ~3 s of mic audio in Int16 LE
+  /// PCM bytes. Append-and-trim from a List<int> — chunks arrive every
+  /// ~100 ms and are small (~3.2 KB each), so the O(N) trim cost is
+  /// negligible. Migrate to a Queue<Uint8List> if Phase 7 testing
+  /// flags it.
+  final List<int> _androidRingBuffer = [];
+
+  /// 3 s @ 16 kHz mono Int16 = 96000 bytes. Matches the iOS ring buffer.
+  static const int _androidRingBufferBytes = 96000;
+
+  /// Minimum bytes required to attempt voiceprint extraction (~1 s).
+  /// Below this we return null from the snapshot — pipeline already
+  /// rejects audio shorter than this on the embedding side.
+  static const int _androidMinSnapshotBytes = 32000;
+
+  /// Health check window: if no chunk arrives within this duration after
+  /// the stream starts, we declare a mic conflict and stop the parallel
+  /// stream. Some OEMs take 1-2 s to deliver the first chunk, so 5 s is
+  /// a comfortable margin without pretending the silence is normal.
+  static const int _bufferHealthTimeoutSeconds = 5;
 
   /// How similar the spoken word must be to the activation word (0.0 to 1.0).
   /// This is the TEXT-level gate. Voiceprint verification (cosine similarity
@@ -441,6 +481,11 @@ class VoiceDetectionService extends ChangeNotifier {
           cancelOnError: false,
         );
 
+        // Try to also open a parallel PCM stream for voiceprint audio.
+        // Best-effort: failure leaves voice activation dormant on Android
+        // (silent skip in _handleRecognizedText) until Phase 5b ships.
+        await _startAndroidBufferStream();
+
         debugPrint('[VoiceDetection] Android listening started '
             '(${_listenDurationSeconds}s session)');
       }
@@ -463,6 +508,7 @@ class VoiceDetectionService extends ChangeNotifier {
         await _nativeVoiceChannel.invokeMethod('stopVoiceDetection');
       } else {
         await _speech.stop();
+        await _stopAndroidBufferStream();
       }
       _isListening = false;
       debugPrint('[VoiceDetection] Listening stopped');
@@ -475,10 +521,13 @@ class VoiceDetectionService extends ChangeNotifier {
   void _onSpeechResult(SpeechRecognitionResult result) {
     final recognized = result.recognizedWords.toLowerCase().trim();
     if (recognized.isEmpty) return;
-    // Android has no audio ring buffer yet (Phase 5 will add it). Without
-    // it, _handleRecognizedText silently skips the trigger after the text
-    // gate — Android voice activation is effectively dormant until Phase 5.
-    _handleRecognizedText(recognized, result.finalResult, null);
+    // Snapshot the parallel mic buffer only on final results — matches
+    // iOS behavior and avoids the copy cost on every interim event.
+    // If the parallel stream isn't running (Phase 5 Path A failed), the
+    // snapshot returns null and _handleRecognizedText silent-skips the
+    // trigger via its security gate.
+    final audio = result.finalResult ? _snapshotAndroidBuffer() : null;
+    _handleRecognizedText(recognized, result.finalResult, audio);
   }
 
   void _onError(SpeechRecognitionError error) {
@@ -647,10 +696,136 @@ class VoiceDetectionService extends ChangeNotifier {
     }
   }
 
+  // ── Android parallel buffer stream (Phase 5 / Path A) ───────────────
+
+  /// Open `record`'s PCM 16 kHz mono stream and start filling the
+  /// sliding window. Best-effort: failures (mic conflict with
+  /// SpeechRecognizer, OEM exclusivity, permission edge cases) are logged
+  /// and the parallel stream stays off — voice activation simply remains
+  /// dormant on Android until Phase 5b ships a fully-native pipeline.
+  Future<void> _startAndroidBufferStream() async {
+    if (_bufferStreamActive) return;
+    _androidRingBuffer.clear();
+
+    try {
+      final stream = await _bufferRecorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+      );
+      _bufferStreamActive = true;
+      _lastBufferChunkAt = DateTime.now();
+
+      _bufferSubscription = stream.listen(
+        (chunk) {
+          _lastBufferChunkAt = DateTime.now();
+          _appendToAndroidRingBuffer(chunk);
+        },
+        onError: (Object e) {
+          debugPrint('[VoiceDetection] Android buffer stream error: $e');
+          // Fire-and-forget cleanup; don't block the listener thread.
+          unawaited(_stopAndroidBufferStream());
+        },
+        onDone: () {
+          debugPrint('[VoiceDetection] Android buffer stream closed');
+          _bufferStreamActive = false;
+        },
+      );
+
+      // Health check: if no chunks arrive within the timeout, declare a
+      // mic conflict and stop the parallel stream. Without this, a
+      // silently-broken stream would keep us thinking voice activation
+      // is working when it isn't.
+      _bufferHealthTimer = Timer(
+        const Duration(seconds: _bufferHealthTimeoutSeconds),
+        () {
+          final last = _lastBufferChunkAt;
+          if (last == null ||
+              DateTime.now().difference(last).inSeconds >=
+                  _bufferHealthTimeoutSeconds) {
+            debugPrint(
+              '[VoiceDetection] Android buffer silent for '
+              '${_bufferHealthTimeoutSeconds}s — mic conflict suspected, '
+              'stopping parallel stream',
+            );
+            debugPrint(
+              '[VoiceDetection] Voice activation will remain dormant on '
+              'Android (Phase 5b needed)',
+            );
+            unawaited(_stopAndroidBufferStream());
+          }
+        },
+      );
+
+      debugPrint(
+        '[VoiceDetection] Android parallel buffer stream started',
+      );
+    } catch (e, stack) {
+      debugPrint(
+        '[VoiceDetection] Failed to start Android buffer stream: $e\n$stack',
+      );
+      debugPrint(
+        '[VoiceDetection] Voice activation will remain dormant on Android '
+        '(Phase 5b needed)',
+      );
+      _bufferStreamActive = false;
+    }
+  }
+
+  /// Append a chunk of Int16 LE PCM bytes to the sliding window, trimming
+  /// from the front so the buffer never exceeds [_androidRingBufferBytes].
+  void _appendToAndroidRingBuffer(Uint8List chunk) {
+    _androidRingBuffer.addAll(chunk);
+    final overflow = _androidRingBuffer.length - _androidRingBufferBytes;
+    if (overflow > 0) {
+      _androidRingBuffer.removeRange(0, overflow);
+    }
+  }
+
+  /// Snapshot the sliding window as a fresh Uint8List, or null if there's
+  /// less than ~1 s of audio captured (the embedding pipeline rejects
+  /// shorter clips). Returns a copy — caller can hold the reference even
+  /// after subsequent appends mutate the underlying list.
+  Uint8List? _snapshotAndroidBuffer() {
+    if (_androidRingBuffer.length < _androidMinSnapshotBytes) return null;
+    return Uint8List.fromList(_androidRingBuffer);
+  }
+
+  /// Stop the parallel buffer stream and clear the sliding window.
+  /// Idempotent: safe to call multiple times. Failures during stop are
+  /// swallowed (the recorder may already be in an error state).
+  Future<void> _stopAndroidBufferStream() async {
+    _bufferHealthTimer?.cancel();
+    _bufferHealthTimer = null;
+
+    final sub = _bufferSubscription;
+    _bufferSubscription = null;
+    if (sub != null) {
+      try {
+        await sub.cancel();
+      } catch (_) {}
+    }
+
+    if (_bufferStreamActive) {
+      try {
+        await _bufferRecorder.stop();
+      } catch (_) {}
+    }
+
+    _bufferStreamActive = false;
+    _lastBufferChunkAt = null;
+    _androidRingBuffer.clear();
+  }
+
   @override
   void dispose() {
     _restartTimer?.cancel();
+    _bufferHealthTimer?.cancel();
     _speech.stop();
+    unawaited(_stopAndroidBufferStream());
+    _bufferRecorder.dispose();
     super.dispose();
   }
 }
