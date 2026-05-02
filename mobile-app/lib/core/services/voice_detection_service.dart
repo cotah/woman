@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -72,7 +73,21 @@ class VoiceDetectionService extends ChangeNotifier {
   bool _requiresEnrollment = false;
 
   /// How similar the spoken word must be to the activation word (0.0 to 1.0).
+  /// This is the TEXT-level gate. Voiceprint verification (cosine similarity
+  /// against the enrolled embedding) is a separate, additional gate.
   static const double _matchThreshold = 0.70;
+
+  /// Minimum cosine similarity between the live utterance embedding and
+  /// the enrolled voiceprint to trigger an alert. Below this, the match
+  /// is silently discarded — text said by someone else (TV, kids, attacker)
+  /// will not fire.
+  static const double _voiceprintThreshold = 0.75;
+
+  /// Cosine similarity above which the live utterance is added to the
+  /// adaptive-learning history (recomputes the aggregate embedding from
+  /// the most recent 10 high-confidence samples). Strictly higher than
+  /// [_voiceprintThreshold] so only confident matches refine the profile.
+  static const double _adaptiveLearnThreshold = 0.85;
 
   /// Seconds to wait before restarting listening after a session ends.
   /// Longer delay = less "ding" sounds on platforms that still play them.
@@ -186,7 +201,10 @@ class VoiceDetectionService extends ChangeNotifier {
           final args = call.arguments as Map;
           final text = (args['text'] as String?) ?? '';
           final isFinal = (args['isFinal'] as bool?) ?? false;
-          _handleRecognizedText(text, isFinal);
+          // Audio is only attached on final results (~3 s of recent
+          // 16 kHz mono Int16 LE PCM). Used for voiceprint verification.
+          final audio = args['audio'] as Uint8List?;
+          await _handleRecognizedText(text, isFinal, audio);
           break;
 
         case 'onSpeechError':
@@ -199,32 +217,126 @@ class VoiceDetectionService extends ChangeNotifier {
     });
   }
 
-  /// Process recognized text (shared between iOS native and Android fallback).
-  void _handleRecognizedText(String text, bool isFinal) {
+  /// Process recognized text from either platform engine.
+  ///
+  /// Two-gate trigger pipeline:
+  ///   1. **Text gate** (Levenshtein): the recognized text must match the
+  ///      stored activation word with similarity >= [_matchThreshold].
+  ///   2. **Voice gate** (cosine): on the final result, the recent audio
+  ///      buffer is run through [VoiceprintService.extractEmbedding] and
+  ///      compared with the enrolled profile. Cosine must be
+  ///      >= [_voiceprintThreshold] to actually trigger the alert.
+  ///
+  /// If the text gate passes but no audio buffer is available (e.g. the
+  /// Android engine path before Phase 5 wires its own ring buffer, or a
+  /// race condition with an empty buffer on iOS), we **silently skip**
+  /// the trigger. This is intentional security: voiceprint must always be
+  /// the final gate to prevent text-only spoofing.
+  Future<void> _handleRecognizedText(
+    String text,
+    bool isFinal,
+    Uint8List? audio,
+  ) async {
     final recognized = text.toLowerCase().trim();
     if (recognized.isEmpty) return;
 
     _lastRecognized = recognized;
 
-    final matchResult = _checkForActivationWord(recognized);
+    final textScore = _checkForActivationWord(recognized);
 
-    if (matchResult > 0) {
-      _confidence = matchResult;
-      debugPrint('[VoiceDetection] MATCH! "$recognized" '
-          '(confidence: ${(matchResult * 100).toStringAsFixed(1)}%)');
+    // Below text threshold: UI feedback only, no voiceprint check.
+    if (textScore < _matchThreshold) {
+      _confidence = textScore;
+      onSpeechRecognized?.call(recognized, textScore);
+      notifyListeners();
+      return;
+    }
 
-      onSpeechRecognized?.call(recognized, matchResult);
+    debugPrint('[VoiceDetection] Text match "$recognized" '
+        '(text score: ${textScore.toStringAsFixed(4)}, isFinal=$isFinal)');
 
-      if (matchResult >= _matchThreshold) {
-        debugPrint('[VoiceDetection] *** ACTIVATION TRIGGERED ***');
-        _triggerActivation();
+    // Always surface the text-level confidence to the UI so partial
+    // matches drive progress feedback.
+    onSpeechRecognized?.call(recognized, textScore);
+
+    // Interim results have only partial audio; wait for the final result
+    // before paying the embedding cost.
+    if (!isFinal) {
+      _confidence = textScore;
+      notifyListeners();
+      return;
+    }
+
+    // Final + text match. Voiceprint is the second gate — closed if no
+    // audio is attached.
+    if (audio == null || audio.isEmpty) {
+      debugPrint('[VoiceDetection] Final text match but no audio buffer — '
+          'voiceprint cannot verify, skipping trigger');
+      _confidence = textScore;
+      notifyListeners();
+      return;
+    }
+
+    try {
+      final pcm = _uint8ToInt16Le(audio);
+      final embedding = await _voiceprintService.extractEmbedding(pcm);
+      final profile = await _voiceprintService.loadProfile();
+
+      if (profile == null) {
+        debugPrint('[VoiceDetection] No voiceprint profile loaded — '
+            'cannot verify, skipping trigger');
+        return;
       }
-    } else {
-      _confidence = 0.0;
-      onSpeechRecognized?.call(recognized, 0.0);
+
+      final cosine = _voiceprintService.compareEmbeddings(
+        embedding,
+        profile.embedding,
+      );
+      _confidence = cosine;
+      debugPrint('[VoiceDetection] Voiceprint cosine '
+          '${cosine.toStringAsFixed(4)} '
+          '(trigger >= $_voiceprintThreshold, '
+          'adapt >= $_adaptiveLearnThreshold)');
+      onSpeechRecognized?.call(recognized, cosine);
+
+      if (cosine >= _voiceprintThreshold) {
+        debugPrint(
+          '[VoiceDetection] *** ACTIVATION TRIGGERED (voice verified) ***',
+        );
+        _triggerActivation();
+
+        // Adaptive learning: high-confidence match feeds back into the
+        // profile. Fire-and-forget — do not block the trigger path.
+        if (cosine >= _adaptiveLearnThreshold) {
+          unawaited(
+            _voiceprintService.updateProfileWithNewSample(embedding),
+          );
+        }
+      } else {
+        debugPrint('[VoiceDetection] Voice mismatch — silent reject '
+            '(cosine ${cosine.toStringAsFixed(4)} '
+            '< $_voiceprintThreshold)');
+      }
+    } catch (e, stack) {
+      debugPrint(
+        '[VoiceDetection] Voiceprint pipeline error: $e\n$stack',
+      );
     }
 
     notifyListeners();
+  }
+
+  /// Convert little-endian Int16 PCM bytes (as delivered by the native
+  /// ring buffer) to a typed [Int16List] suitable for
+  /// [VoiceprintService.extractEmbedding]. Uses [ByteData] to avoid
+  /// alignment requirements on the source [Uint8List].
+  static Int16List _uint8ToInt16Le(Uint8List bytes) {
+    final samples = Int16List(bytes.length ~/ 2);
+    final bd = ByteData.sublistView(bytes);
+    for (int i = 0; i < samples.length; i++) {
+      samples[i] = bd.getInt16(i * 2, Endian.little);
+    }
+    return samples;
   }
 
   /// Configure AudioSession to suppress system sounds (Android fallback only).
@@ -363,7 +475,10 @@ class VoiceDetectionService extends ChangeNotifier {
   void _onSpeechResult(SpeechRecognitionResult result) {
     final recognized = result.recognizedWords.toLowerCase().trim();
     if (recognized.isEmpty) return;
-    _handleRecognizedText(recognized, result.finalResult);
+    // Android has no audio ring buffer yet (Phase 5 will add it). Without
+    // it, _handleRecognizedText silently skips the trigger after the text
+    // gate — Android voice activation is effectively dormant until Phase 5.
+    _handleRecognizedText(recognized, result.finalResult, null);
   }
 
   void _onError(SpeechRecognitionError error) {

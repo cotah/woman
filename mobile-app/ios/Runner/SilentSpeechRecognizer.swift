@@ -12,9 +12,14 @@ import AVFoundation
 /// Architecture:
 /// 1. AVAudioEngine runs permanently (no start/stop = no sound)
 /// 2. SFSpeechRecognizer processes audio buffers in real-time
-/// 3. When a recognition session times out, we create a new request
-///    but the audio engine keeps running uninterrupted
-/// 4. Results are sent to Flutter via a callback
+/// 3. Each buffer is ALSO resampled to 16 kHz mono Float32 and appended to
+///    a 3-second ring buffer for voiceprint verification (Phase 4)
+/// 4. When a recognition session times out, we create a new request but
+///    the audio engine keeps running uninterrupted
+/// 5. On a final speech result, the ring buffer is snapshotted into
+///    little-endian Int16 PCM and sent to Flutter alongside the text via
+///    the onResult callback. Flutter then runs voiceprint verification
+///    before triggering the alert.
 class SilentSpeechRecognizer: NSObject {
 
     // MARK: - Properties
@@ -34,11 +39,40 @@ class SilentSpeechRecognizer: NSObject {
     /// Whether the engine is currently running.
     private(set) var isRunning = false
 
-    /// Callback when speech is recognized. Sends the recognized text.
-    var onResult: ((String, Bool) -> Void)?
+    /// Callback fired on each speech recognition update. Carries the
+    /// recognized text, whether it's the final result for the current
+    /// utterance, and (only on final results) a snapshot of the recent
+    /// audio in 16 kHz mono Int16 little-endian PCM bytes for voiceprint
+    /// verification on the Dart side.
+    var onResult: ((String, Bool, Data?) -> Void)?
 
     /// Callback when an error occurs.
     var onError: ((String) -> Void)?
+
+    // MARK: - Voiceprint ring buffer
+
+    /// Target format for voiceprint inference: 16 kHz, mono, Float32.
+    /// Matches what the bundled TFLite Wespeaker model expects after
+    /// the Dart-side mel-spectrogram pipeline.
+    private let voiceprintSampleRate: Double = 16000
+    private static let ringBufferCapacity = 48000 // 3 s @ 16 kHz
+
+    /// Ring buffer of recently captured audio (Float32, 16 kHz mono).
+    /// Always points to a fixed-size allocation; writes wrap circularly.
+    private var ringBuffer = [Float](repeating: 0, count: ringBufferCapacity)
+    private var ringBufferWriteIdx = 0
+    /// True once the ring buffer has wrapped at least once (i.e. it
+    /// contains a full 3 s of audio history).
+    private var ringBufferFilled = false
+    /// Guards [ringBuffer], [ringBufferWriteIdx], and [ringBufferFilled].
+    /// The audio tap thread writes; the recognition callback (delivered
+    /// on a different queue) reads via [snapshotRingBuffer].
+    private let ringBufferLock = NSLock()
+
+    /// Resampler from the input node's native format to [voiceprintFormat].
+    /// Built lazily in [startAudioEngine] when we have the input format.
+    private var audioConverter: AVAudioConverter?
+    private var voiceprintFormat: AVAudioFormat?
 
     // MARK: - Init
 
@@ -95,6 +129,15 @@ class SilentSpeechRecognizer: NSObject {
             audioEngine.inputNode.removeTap(onBus: 0)
         }
 
+        // Reset ring buffer state for the next start.
+        ringBufferLock.lock()
+        ringBufferWriteIdx = 0
+        ringBufferFilled = false
+        ringBufferLock.unlock()
+
+        audioConverter = nil
+        voiceprintFormat = nil
+
         isRunning = false
         NSLog("[SilentSpeech] Stopped")
     }
@@ -126,20 +169,158 @@ class SilentSpeechRecognizer: NSObject {
     // MARK: - Audio Engine
 
     /// Start the AVAudioEngine and install a tap to capture audio buffers.
+    /// The tap feeds two consumers per buffer:
+    ///   1. The Apple speech recognizer (existing behavior).
+    ///   2. A 16 kHz mono Float32 ring buffer used for voiceprint snapshots.
     private func startAudioEngine() throws {
         let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let nativeFormat = inputNode.outputFormat(forBus: 0)
+
+        // Build the resampler once. The native format on iOS varies by
+        // device (typically Float32, mono or stereo, 44.1 kHz or 48 kHz);
+        // AVAudioConverter handles downmix + sample rate change.
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: voiceprintSampleRate,
+            channels: 1,
+            interleaved: false
+        ) else {
+            throw NSError(
+                domain: "SilentSpeech", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to build target voiceprint format"]
+            )
+        }
+        self.voiceprintFormat = targetFormat
+        self.audioConverter = AVAudioConverter(from: nativeFormat, to: targetFormat)
+        if self.audioConverter == nil {
+            NSLog("[SilentSpeech] WARNING: failed to build AVAudioConverter from \(nativeFormat) to \(targetFormat) — voiceprint disabled")
+        }
 
         // Install a tap to capture audio buffers
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) {
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nativeFormat) {
             [weak self] buffer, _ in
-            // Feed audio buffer to the speech recognition request
-            self?.recognitionRequest?.append(buffer)
+            guard let self = self else { return }
+
+            // 1. Feed audio buffer to the speech recognition request
+            self.recognitionRequest?.append(buffer)
+
+            // 2. Resample to 16 kHz mono Float32 and append to ring buffer
+            //    for voiceprint verification on isFinal results.
+            if let resampled = self.resampleForVoiceprint(buffer) {
+                self.appendToRingBuffer(resampled)
+            }
         }
 
         audioEngine.prepare()
         try audioEngine.start()
-        NSLog("[SilentSpeech] Audio engine started")
+        NSLog("[SilentSpeech] Audio engine started (native: \(nativeFormat))")
+    }
+
+    // MARK: - Voiceprint resampling + ring buffer
+
+    /// Resample a native input buffer to 16 kHz mono Float32. Returns nil
+    /// on converter error or if the converter wasn't initialized — the
+    /// ring buffer simply skips that chunk in those cases (silent
+    /// degradation rather than crash).
+    private func resampleForVoiceprint(_ inputBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let converter = self.audioConverter,
+              let target = self.voiceprintFormat,
+              inputBuffer.frameLength > 0 else {
+            return nil
+        }
+
+        // Output capacity must accommodate the worst case (input length *
+        // sample rate ratio + small safety margin).
+        let ratio = target.sampleRate / inputBuffer.format.sampleRate
+        let outputCapacity = AVAudioFrameCount(
+            ceil(Double(inputBuffer.frameLength) * ratio) + 16
+        )
+        guard let outputBuffer = AVAudioPCMBuffer(
+            pcmFormat: target, frameCapacity: outputCapacity
+        ) else { return nil }
+
+        // AVAudioConverter pulls input via a callback. We provide the buffer
+        // exactly once and then signal end-of-stream so it doesn't loop.
+        var didProvide = false
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            if didProvide {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            didProvide = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+
+        var error: NSError?
+        let status = converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
+        if let error = error {
+            NSLog("[SilentSpeech] Resample error: \(error.localizedDescription)")
+            return nil
+        }
+        if status == .error || outputBuffer.frameLength == 0 {
+            return nil
+        }
+        return outputBuffer
+    }
+
+    /// Append samples from a Float32 mono buffer into the ring buffer,
+    /// wrapping at the end. Thread-safe via [ringBufferLock].
+    private func appendToRingBuffer(_ pcm: AVAudioPCMBuffer) {
+        guard let channelData = pcm.floatChannelData?[0] else { return }
+        let count = Int(pcm.frameLength)
+        if count <= 0 { return }
+
+        ringBufferLock.lock()
+        defer { ringBufferLock.unlock() }
+
+        var srcIdx = 0
+        while srcIdx < count {
+            let chunk = min(count - srcIdx, Self.ringBufferCapacity - ringBufferWriteIdx)
+            for i in 0..<chunk {
+                ringBuffer[ringBufferWriteIdx + i] = channelData[srcIdx + i]
+            }
+            ringBufferWriteIdx += chunk
+            srcIdx += chunk
+            if ringBufferWriteIdx >= Self.ringBufferCapacity {
+                ringBufferWriteIdx = 0
+                ringBufferFilled = true
+            }
+        }
+    }
+
+    /// Snapshot the ring buffer as little-endian Int16 PCM bytes, ordered
+    /// oldest → newest. Returns nil if there's less than 1 s of audio
+    /// available (the voiceprint pipeline rejects shorter clips anyway).
+    /// Thread-safe via [ringBufferLock].
+    private func snapshotRingBuffer() -> Data? {
+        ringBufferLock.lock()
+        defer { ringBufferLock.unlock() }
+
+        let availableSamples = ringBufferFilled
+            ? Self.ringBufferCapacity
+            : ringBufferWriteIdx
+        if availableSamples < 16000 {
+            // < 1 s of audio captured so far — not enough for a stable
+            // embedding. Caller will skip the trigger.
+            return nil
+        }
+
+        // Read oldest → newest. If wrapped, oldest sample is at the
+        // current write index; if not wrapped, it's at index 0.
+        let oldestIdx = ringBufferFilled ? ringBufferWriteIdx : 0
+
+        var bytes = Data(count: availableSamples * 2)
+        bytes.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+            guard let dest = raw.baseAddress else { return }
+            let int16Dest = dest.assumingMemoryBound(to: Int16.self)
+            for i in 0..<availableSamples {
+                let srcIdx = (oldestIdx + i) % Self.ringBufferCapacity
+                let f = max(-1.0, min(1.0, ringBuffer[srcIdx]))
+                int16Dest[i] = Int16(f * 32767.0)
+            }
+        }
+        return bytes
     }
 
     // MARK: - Speech Recognition Session
@@ -177,7 +358,13 @@ class SilentSpeechRecognizer: NSObject {
                 let isFinal = result.isFinal
 
                 if !text.isEmpty {
-                    self.onResult?(text, isFinal)
+                    // Snapshot the ring buffer ONLY on final results — interim
+                    // results would have partial audio and we don't want to
+                    // pay the conversion cost on every keystroke.
+                    let audioSnapshot: Data? = isFinal
+                        ? self.snapshotRingBuffer()
+                        : nil
+                    self.onResult?(text, isFinal, audioSnapshot)
                 }
 
                 if isFinal {

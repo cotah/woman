@@ -119,12 +119,18 @@ import Speech
   // MARK: - Voice Channel
 
   private func setupVoiceCallHandler() {
-    // Wire native speech results → Flutter
-    silentSpeech.onResult = { [weak self] text, isFinal in
-      self?.voiceChannel?.invokeMethod("onSpeechResult", arguments: [
+    // Wire native speech results → Flutter. The audio buffer (16 kHz mono
+    // Int16 LE PCM, ~3 s window) is only attached on final results — Dart
+    // uses it for voiceprint verification before triggering an alert.
+    silentSpeech.onResult = { [weak self] text, isFinal, audio in
+      var arguments: [String: Any] = [
         "text": text,
         "isFinal": isFinal,
-      ])
+      ]
+      if let audio = audio {
+        arguments["audio"] = FlutterStandardTypedData(bytes: audio)
+      }
+      self?.voiceChannel?.invokeMethod("onSpeechResult", arguments: arguments)
     }
 
     silentSpeech.onError = { [weak self] errorMsg in
