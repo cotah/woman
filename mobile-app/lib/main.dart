@@ -29,6 +29,7 @@ import 'core/services/background_service.dart';
 import 'core/services/location_tracker_service.dart';
 import 'core/services/learned_places_service.dart';
 import 'core/services/voice_detection_service.dart';
+import 'core/services/voiceprint_service.dart';
 import 'core/services/geofence_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/models/incident.dart';
@@ -149,6 +150,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
   late final LocationTrackerService _locationTrackerService;
   late final LearnedPlacesService _learnedPlacesService;
   late final VoiceDetectionService _voiceDetectionService;
+  late final VoiceprintService _voiceprintService;
   late final GeofenceService _geofenceService;
   late final ThemeNotifier _themeNotifier;
   late final GoRouter _router;
@@ -244,6 +246,14 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     try { _voiceDetectionService.initialize(); }
     catch (e) { debugPrint('[Main] VoiceDetectionService init failed: $e'); }
 
+    // Voiceprint engine (Phase 1: load + warmup only). If model fails to
+    // load, voice biometrics is unavailable for the session but the rest
+    // of the app keeps working — VoiceDetectionService will still match
+    // by activation word alone until Phase 2 wires the verifier in.
+    _voiceprintService = VoiceprintService();
+    try { _voiceprintService.initialize(); }
+    catch (e) { debugPrint('[Main] VoiceprintService init failed: $e'); }
+
     _geofenceService = GeofenceService(
       tracker: _locationTrackerService,
       learnedPlaces: _learnedPlacesService,
@@ -292,6 +302,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
     _locationTrackerService.dispose();
     _learnedPlacesService.dispose();
     _voiceDetectionService.dispose();
+    _voiceprintService.dispose();
     _geofenceService.dispose();
     super.dispose();
   }
@@ -440,6 +451,7 @@ class _SafeCircleAppState extends State<SafeCircleApp> {
         ChangeNotifierProvider.value(value: _locationTrackerService),
         ChangeNotifierProvider.value(value: _learnedPlacesService),
         ChangeNotifierProvider.value(value: _voiceDetectionService),
+        ChangeNotifierProvider.value(value: _voiceprintService),
         ChangeNotifierProvider.value(value: _geofenceService),
         Provider.value(value: _smsFallbackService),
         Provider.value(value: widget.apiClient),

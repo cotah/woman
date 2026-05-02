@@ -39,6 +39,10 @@ dependencies:
   speech_to_text: ^7.0.0
   audio_session: ^0.1.21
 
+  # Voice biometrics (on-device speaker verification)
+  tflite_flutter: ^0.12.1
+  fftea: ^1.5.0
+
   # Authentication & Security
   local_auth: ^2.2.0
   permission_handler: ^11.3.1
