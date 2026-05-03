@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/models/voiceprint_profile.dart';
 import '../../core/services/voice_detection_service.dart';
+import '../../core/services/voiceprint_service.dart';
 import '../../core/storage/secure_storage.dart';
 
 /// Voice detection settings screen.
@@ -22,11 +25,39 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   final _wordController = TextEditingController();
   bool _isSaving = false;
 
+  /// Future holding the currently-saved voiceprint profile (or null if
+  /// none is enrolled). Stored in state so the FutureBuilder doesn't
+  /// rebuild a new request on every frame; refreshed explicitly via
+  /// [_refreshProfileFuture] when something changes (after retrain,
+  /// after enroll, etc).
+  Future<VoiceprintProfile?>? _profileFuture;
+
   @override
   void initState() {
     super.initState();
     final voiceService = context.read<VoiceDetectionService>();
     _wordController.text = voiceService.activationWord;
+    _profileFuture = context.read<VoiceprintService>().loadProfile();
+  }
+
+  void _refreshProfileFuture() {
+    setState(() {
+      _profileFuture = context.read<VoiceprintService>().loadProfile();
+    });
+  }
+
+  Future<void> _openRetrain() async {
+    final didRetrain =
+        await context.push<bool>('/settings/voice/retrain');
+    if (!mounted) return;
+    if (didRetrain == true) {
+      // Refresh both: VoiceDetectionService.requiresEnrollment may have
+      // flipped, and the profile we just enrolled needs to surface in
+      // the card.
+      await context.read<VoiceDetectionService>().refreshEnrollmentStatus();
+      if (!mounted) return;
+      _refreshProfileFuture();
+    }
   }
 
   @override
@@ -91,6 +122,10 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
           _buildActivationWordSection(theme, voiceService),
           const SizedBox(height: 24),
 
+          // ── Voice Biometrics (profile status + retrain) ──
+          _buildVoiceprintCard(theme, voiceService),
+          const SizedBox(height: 24),
+
           // ── Live Detection Monitor ──
           if (voiceService.isListening) ...[
             _buildLiveMonitor(theme, voiceService),
@@ -99,6 +134,10 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
 
           // ── How It Works ──
           _buildInfoSection(theme),
+          const SizedBox(height: 16),
+
+          // ── Debug (collapsible, default closed) ──
+          _buildDebugTile(theme),
         ],
       ),
     );
@@ -462,6 +501,376 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
         ),
       ),
     );
+  }
+
+  // ── Voice biometrics card ──────────────────────────────────────────
+
+  Widget _buildVoiceprintCard(
+    ThemeData theme,
+    VoiceDetectionService detection,
+  ) {
+    return FutureBuilder<VoiceprintProfile?>(
+      future: _profileFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Card(
+            child: SizedBox(
+              height: 88,
+              child: Center(
+                child: CircularProgressIndicator(
+                  valueColor:
+                      AlwaysStoppedAnimation(theme.colorScheme.primary),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final profile = snapshot.data;
+        if (profile != null) {
+          return _buildVoiceprintActiveCard(theme, profile);
+        }
+
+        // No profile. Differentiate "needs setup after migration" vs
+        // "never set up" — the migration banner is more urgent.
+        if (detection.requiresEnrollment) {
+          return _buildVoiceprintMigrationCard(theme);
+        }
+        return _buildVoiceprintNotSetUpCard(theme);
+      },
+    );
+  }
+
+  /// State 1: profile null + requiresEnrollment=false. Never enrolled
+  /// (or skipped during onboarding). Friendly call-to-action.
+  Widget _buildVoiceprintNotSetUpCard(ThemeData theme) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.shield_outlined,
+                    color: theme.colorScheme.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Voice biometrics',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Not set up.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Voice activation only triggers when it\'s really you '
+              'saying the word.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _openRetrain,
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('Set up voice biometrics'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// State 2: profile null + requiresEnrollment=true. Migration from a
+  /// pre-voiceprint install. Amber tint to signal "important, act now".
+  Widget _buildVoiceprintMigrationCard(ThemeData theme) {
+    return Card(
+      color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.45),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: theme.colorScheme.tertiary.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: theme.colorScheme.tertiary,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Voice activation needs setup',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onTertiaryContainer,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You have an activation word saved but no voice profile '
+              'yet. Set up voice biometrics so only YOU can trigger the '
+              'alert.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _openRetrain,
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('Set up now'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// State 3: profile present. Quiet "all good" tone, retrain demoted
+  /// to a tonal button so users don't accidentally invalidate a working
+  /// profile.
+  Widget _buildVoiceprintActiveCard(
+    ThemeData theme,
+    VoiceprintProfile profile,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.verified_user_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Voice profile active',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildKeyValueRow(
+              theme,
+              label: 'Last updated',
+              value: _relativeDuration(profile.updatedAt),
+            ),
+            const SizedBox(height: 4),
+            _buildKeyValueRow(
+              theme,
+              label: 'Trained on',
+              value:
+                  '${profile.history.length}/${VoiceprintProfile.maxHistorySize} samples',
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                onPressed: _openRetrain,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Re-train voice profile'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeyValueRow(
+    ThemeData theme, {
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Text(
+          '$label: ',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Debug expansion tile ───────────────────────────────────────────
+
+  Widget _buildDebugTile(ThemeData theme) {
+    final voiceprint = context.watch<VoiceprintService>();
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        leading: const Icon(Icons.bug_report_outlined),
+        title: const Text('Voice profile (debug)'),
+        subtitle: Text(
+          'Engine: ${_statusLabel(voiceprint.status)}',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          _buildDebugRow(theme, 'Engine status', _statusLabel(voiceprint.status)),
+          _buildDebugRow(
+            theme,
+            'Model load',
+            voiceprint.loadDuration != null
+                ? '${voiceprint.loadDuration!.inMilliseconds} ms'
+                : '—',
+          ),
+          _buildDebugRow(
+            theme,
+            'Warmup',
+            voiceprint.warmupDuration != null
+                ? '${voiceprint.warmupDuration!.inMilliseconds} ms'
+                : '—',
+          ),
+          FutureBuilder<VoiceprintProfile?>(
+            future: _profileFuture,
+            builder: (context, snapshot) {
+              final profile = snapshot.data;
+              if (profile == null) {
+                return _buildDebugRow(theme, 'Profile', 'not enrolled');
+              }
+              final ageDays =
+                  DateTime.now().difference(profile.updatedAt).inDays;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDebugRow(theme, 'Profile age', '$ageDays day(s)'),
+                  _buildDebugRow(
+                    theme,
+                    'Samples',
+                    '${profile.history.length}/${VoiceprintProfile.maxHistorySize}',
+                  ),
+                  _buildDebugRow(
+                    theme,
+                    'Model hash',
+                    '${profile.modelHash.substring(0, 12)}…',
+                  ),
+                ],
+              );
+            },
+          ),
+          if (voiceprint.errorMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Error: ${voiceprint.errorMessage}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _statusLabel(VoiceprintStatus s) {
+    switch (s) {
+      case VoiceprintStatus.uninitialized:
+        return 'uninitialized';
+      case VoiceprintStatus.loading:
+        return 'loading';
+      case VoiceprintStatus.ready:
+        return 'ready';
+      case VoiceprintStatus.error:
+        return 'error';
+    }
+  }
+
+  Widget _buildDebugRow(ThemeData theme, String key, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              key,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Human-friendly duration formatter:
+  ///   - < 1 minute       → "just now"
+  ///   - < 1 hour         → "X min ago"
+  ///   - < 1 day          → "X hour(s) ago"
+  ///   - < 30 days        → "X day(s) ago"
+  ///   - >= 30 days       → "MMM D, YYYY" (e.g. "Apr 30, 2026")
+  String _relativeDuration(DateTime when) {
+    final now = DateTime.now();
+    final diff = now.difference(when);
+    if (diff.inDays >= 30) {
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return '${months[when.month - 1]} ${when.day}, ${when.year}';
+    }
+    if (diff.inDays >= 1) {
+      return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+    }
+    if (diff.inHours >= 1) {
+      return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+    }
+    if (diff.inMinutes >= 1) {
+      return '${diff.inMinutes} min ago';
+    }
+    return 'just now';
   }
 }
 

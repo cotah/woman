@@ -439,6 +439,30 @@ class VoiceDetectionService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Re-evaluate whether voice activation requires a fresh enrollment.
+  /// Call this from Settings after a re-enrollment flow completes — the
+  /// underlying [VoiceprintService.loadProfile] is the source of truth.
+  /// Notifies listeners only if the value actually flipped, so consumers
+  /// don't get spurious rebuilds.
+  Future<void> refreshEnrollmentStatus() async {
+    if (_activationWord.isEmpty) {
+      if (_requiresEnrollment) {
+        _requiresEnrollment = false;
+        notifyListeners();
+      }
+      return;
+    }
+    final profile = await _voiceprintService.loadProfile();
+    final newValue = profile == null;
+    if (newValue != _requiresEnrollment) {
+      _requiresEnrollment = newValue;
+      debugPrint(
+        '[VoiceDetection] requiresEnrollment refreshed -> $newValue',
+      );
+      notifyListeners();
+    }
+  }
+
   /// Update the activation word.
   Future<void> updateActivationWord(String word) async {
     _activationWord = word.trim().toLowerCase();

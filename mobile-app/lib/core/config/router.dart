@@ -31,6 +31,7 @@ import '../../features/help/disclaimer_screen.dart';
 import '../../features/journey/journey_screen.dart';
 import '../../features/journey/active_journey_screen.dart';
 import '../../features/diagnostics/system_readiness_screen.dart';
+import '../../features/settings/voice_retrain_screen.dart';
 import '../../features/settings/voice_settings_screen.dart';
 import '../../features/map/live_map_screen.dart';
 import '../../features/settings/geofence_settings_screen.dart';
@@ -194,6 +195,10 @@ GoRouter buildRouter(
       GoRoute(
         path: '/settings/voice',
         builder: (context, state) => const VoiceSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/voice/retrain',
+        builder: (context, state) => const VoiceRetrainScreen(),
       ),
 
       // Emergency

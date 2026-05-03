@@ -259,6 +259,7 @@ class VoiceprintService extends ChangeNotifier {
 
     await _saveProfile(profile);
     debugPrint('[Voiceprint] Enrolled with ${samples.length} samples');
+    notifyListeners();
     return profile;
   }
 
@@ -340,6 +341,7 @@ class VoiceprintService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[Voiceprint] Failed to delete profile: $e');
     }
+    notifyListeners();
   }
 
   // ── Internals ─────────────────────────────────────────────────────────
