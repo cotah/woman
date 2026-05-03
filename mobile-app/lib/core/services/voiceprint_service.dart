@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../models/voiceprint_profile.dart';
@@ -140,10 +142,32 @@ class VoiceprintService extends ChangeNotifier {
       _status = VoiceprintStatus.ready;
       _errorMessage = null;
       notifyListeners();
+
+      Sentry.addBreadcrumb(Breadcrumb(
+        category: 'voiceprint',
+        level: SentryLevel.info,
+        message: 'Voiceprint engine ready',
+        data: {
+          'load_ms': _loadDuration?.inMilliseconds,
+          'warmup_ms': _warmupDuration?.inMilliseconds,
+          'status': 'ready',
+        },
+      ));
     } catch (e, stack) {
       _errorMessage = e.toString();
       _status = VoiceprintStatus.error;
       debugPrint('[Voiceprint] Init failed: $e\n$stack');
+      // Capture phase by inspecting whether the interpreter loaded
+      // before the failure: null = load phase, non-null = warmup phase.
+      final hasInterpreter = _interpreter != null;
+      unawaited(Sentry.captureException(
+        e,
+        stackTrace: stack,
+        withScope: (scope) {
+          scope.setExtra('phase', hasInterpreter ? 'warmup' : 'load');
+          scope.setExtra('has_interpreter', hasInterpreter);
+        },
+      ));
       try {
         _interpreter?.close();
       } catch (_) {}
@@ -260,6 +284,14 @@ class VoiceprintService extends ChangeNotifier {
     await _saveProfile(profile);
     debugPrint('[Voiceprint] Enrolled with ${samples.length} samples');
     notifyListeners();
+
+    Sentry.addBreadcrumb(Breadcrumb(
+      category: 'voiceprint',
+      level: SentryLevel.info,
+      message: 'Voiceprint enrolled',
+      data: {'sample_count': samples.length},
+    ));
+
     return profile;
   }
 
@@ -283,6 +315,20 @@ class VoiceprintService extends ChangeNotifier {
           '${VoiceprintProfile.currentModelHash.substring(0, 8)}.... '
           'Re-enrollment required.',
         );
+        unawaited(Sentry.captureMessage(
+          'Voiceprint profile incompatible with current model',
+          level: SentryLevel.warning,
+          withScope: (scope) {
+            scope.setExtra(
+              'stored_hash_short',
+              profile.modelHash.substring(0, 12),
+            );
+            scope.setExtra(
+              'current_hash_short',
+              VoiceprintProfile.currentModelHash.substring(0, 12),
+            );
+          },
+        ));
         return null;
       }
 

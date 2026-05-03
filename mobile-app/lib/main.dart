@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,6 +37,7 @@ import 'core/services/geofence_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/models/incident.dart';
 import 'core/models/location_update.dart';
+import 'core/models/voiceprint_profile.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_notifier.dart';
 import 'core/utils/coercion_handler.dart';
@@ -101,11 +105,16 @@ void main() async {
         options.sendDefaultPii = false; // Don't send personal info
         options.debug = envName == 'dev';
       },
-      appRunner: () => runApp(SafeCircleApp(
-        secureStorage: secureStorage,
-        apiClient: apiClient,
-        stealthService: stealthService,
-      )),
+      appRunner: () async {
+        // Set global tags BEFORE runApp so the very first event in the
+        // session already carries device context. ~50ms one-shot cost.
+        await _setSentryGlobalTags();
+        runApp(SafeCircleApp(
+          secureStorage: secureStorage,
+          apiClient: apiClient,
+          stealthService: stealthService,
+        ));
+      },
     );
   } else {
     runApp(SafeCircleApp(
@@ -113,6 +122,44 @@ void main() async {
       apiClient: apiClient,
       stealthService: stealthService,
     ));
+  }
+}
+
+/// Tag every Sentry event in this session with device model, OS version,
+/// and the truncated voiceprint model hash. These are anonymized values
+/// (no PII) used to correlate Android Path A success/fail by OEM and
+/// to group issues when the voiceprint model is upgraded.
+///
+/// Best-effort: any failure here logs locally and lets the app continue
+/// without the tags. Sentry SDK calls are noop-safe if init didn't run.
+Future<void> _setSentryGlobalTags() async {
+  try {
+    String? deviceModel;
+    String? osVersion;
+    final info = DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      final a = await info.androidInfo;
+      deviceModel = '${a.manufacturer} ${a.model}'.trim();
+      osVersion = 'Android ${a.version.release}';
+    } else if (Platform.isIOS) {
+      final i = await info.iosInfo;
+      deviceModel = i.utsname.machine;
+      osVersion = '${i.systemName} ${i.systemVersion}';
+    }
+    await Sentry.configureScope((scope) {
+      if (deviceModel != null && deviceModel.isNotEmpty) {
+        scope.setTag('device.model', deviceModel);
+      }
+      if (osVersion != null && osVersion.isNotEmpty) {
+        scope.setTag('device.os', osVersion);
+      }
+      scope.setTag(
+        'voiceprint.model_hash',
+        VoiceprintProfile.currentModelHash.substring(0, 12),
+      );
+    });
+  } catch (e) {
+    debugPrint('[Main] Sentry global tags setup failed: $e');
   }
 }
 

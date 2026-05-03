@@ -6,6 +6,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
@@ -90,6 +91,8 @@ class VoiceDetectionService extends ChangeNotifier {
   bool _bufferStreamActive = false;
   Timer? _bufferHealthTimer;
   DateTime? _lastBufferChunkAt;
+  DateTime? _bufferStreamStartedAt;
+  int _bufferChunksReceived = 0;
 
   /// Sliding window of the most recent ~3 s of mic audio in Int16 LE
   /// PCM bytes. Append-and-trim from a List<int> — chunks arrive every
@@ -295,6 +298,20 @@ class VoiceDetectionService extends ChangeNotifier {
     debugPrint('[VoiceDetection] Text match "$recognized" '
         '(text score: ${textScore.toStringAsFixed(4)}, isFinal=$isFinal)');
 
+    // NOTE: do not include the recognized text or the activation word
+    // in any breadcrumb data — the activation word is a per-user
+    // fingerprint we must keep out of telemetry. Only structural
+    // booleans/scores leave the device.
+    Sentry.addBreadcrumb(Breadcrumb(
+      category: 'voice_detection',
+      level: SentryLevel.info,
+      message: 'Text gate passed',
+      data: {
+        'is_final': isFinal,
+        'text_score': _round4(textScore),
+      },
+    ));
+
     // Always surface the text-level confidence to the UI so partial
     // matches drive progress feedback.
     onSpeechRecognized?.call(recognized, textScore);
@@ -312,15 +329,25 @@ class VoiceDetectionService extends ChangeNotifier {
     if (audio == null || audio.isEmpty) {
       debugPrint('[VoiceDetection] Final text match but no audio buffer — '
           'voiceprint cannot verify, skipping trigger');
+      Sentry.addBreadcrumb(Breadcrumb(
+        category: 'voice_detection',
+        level: SentryLevel.warning,
+        message: 'Voiceprint skipped: no audio buffer',
+        data: {
+          'platform': _useNativeRecognizer ? 'ios' : 'android',
+        },
+      ));
       _confidence = textScore;
       notifyListeners();
       return;
     }
 
+    bool profileLoaded = false;
     try {
       final pcm = _uint8ToInt16Le(audio);
       final embedding = await _voiceprintService.extractEmbedding(pcm);
       final profile = await _voiceprintService.loadProfile();
+      profileLoaded = profile != null;
 
       if (profile == null) {
         debugPrint('[VoiceDetection] No voiceprint profile loaded — '
@@ -339,7 +366,20 @@ class VoiceDetectionService extends ChangeNotifier {
           'adapt >= $_adaptiveLearnThreshold)');
       onSpeechRecognized?.call(recognized, cosine);
 
-      if (cosine >= _voiceprintThreshold) {
+      final triggered = cosine >= _voiceprintThreshold;
+      final adaptive = cosine >= _adaptiveLearnThreshold;
+      Sentry.addBreadcrumb(Breadcrumb(
+        category: 'voice_detection',
+        level: SentryLevel.info,
+        message: 'Voiceprint cosine computed',
+        data: {
+          'cosine': _round4(cosine),
+          'triggered': triggered,
+          'adaptive': adaptive,
+        },
+      ));
+
+      if (triggered) {
         debugPrint(
           '[VoiceDetection] *** ACTIVATION TRIGGERED (voice verified) ***',
         );
@@ -347,7 +387,13 @@ class VoiceDetectionService extends ChangeNotifier {
 
         // Adaptive learning: high-confidence match feeds back into the
         // profile. Fire-and-forget — do not block the trigger path.
-        if (cosine >= _adaptiveLearnThreshold) {
+        if (adaptive) {
+          Sentry.addBreadcrumb(Breadcrumb(
+            category: 'voice_detection',
+            level: SentryLevel.info,
+            message: 'Adaptive learning sample added',
+            data: {'cosine': _round4(cosine)},
+          ));
           unawaited(
             _voiceprintService.updateProfileWithNewSample(embedding),
           );
@@ -356,15 +402,35 @@ class VoiceDetectionService extends ChangeNotifier {
         debugPrint('[VoiceDetection] Voice mismatch — silent reject '
             '(cosine ${cosine.toStringAsFixed(4)} '
             '< $_voiceprintThreshold)');
+        Sentry.addBreadcrumb(Breadcrumb(
+          category: 'voice_detection',
+          level: SentryLevel.info,
+          message: 'Voiceprint cosine reject',
+          data: {'cosine': _round4(cosine)},
+        ));
       }
     } catch (e, stack) {
       debugPrint(
         '[VoiceDetection] Voiceprint pipeline error: $e\n$stack',
       );
+      unawaited(Sentry.captureException(
+        e,
+        stackTrace: stack,
+        withScope: (scope) {
+          scope.setExtra('has_audio', true);
+          scope.setExtra('audio_bytes', audio.length);
+          scope.setExtra('profile_loaded', profileLoaded);
+        },
+      ));
     }
 
     notifyListeners();
   }
+
+  /// Rounds a cosine/score to 4 decimals for Sentry breadcrumb data —
+  /// matches the precision used in debugPrint logs.
+  static double _round4(double v) =>
+      double.parse(v.toStringAsFixed(4));
 
   /// Convert little-endian Int16 PCM bytes (as delivered by the native
   /// ring buffer) to a typed [Int16List] suitable for
@@ -730,6 +796,7 @@ class VoiceDetectionService extends ChangeNotifier {
   Future<void> _startAndroidBufferStream() async {
     if (_bufferStreamActive) return;
     _androidRingBuffer.clear();
+    _bufferChunksReceived = 0;
 
     try {
       final stream = await _bufferRecorder.startStream(
@@ -740,15 +807,30 @@ class VoiceDetectionService extends ChangeNotifier {
         ),
       );
       _bufferStreamActive = true;
-      _lastBufferChunkAt = DateTime.now();
+      _bufferStreamStartedAt = DateTime.now();
+      _lastBufferChunkAt = _bufferStreamStartedAt;
 
       _bufferSubscription = stream.listen(
         (chunk) {
           _lastBufferChunkAt = DateTime.now();
+          _bufferChunksReceived++;
           _appendToAndroidRingBuffer(chunk);
         },
-        onError: (Object e) {
+        onError: (Object e, StackTrace stack) {
           debugPrint('[VoiceDetection] Android buffer stream error: $e');
+          final startedAt = _bufferStreamStartedAt;
+          final msSinceStart = startedAt == null
+              ? null
+              : DateTime.now().difference(startedAt).inMilliseconds;
+          final chunks = _bufferChunksReceived;
+          unawaited(Sentry.captureException(
+            e,
+            stackTrace: stack,
+            withScope: (scope) {
+              scope.setExtra('chunks_received', chunks);
+              scope.setExtra('ms_since_start', msSinceStart);
+            },
+          ));
           // Fire-and-forget cleanup; don't block the listener thread.
           unawaited(_stopAndroidBufferStream());
         },
@@ -766,9 +848,11 @@ class VoiceDetectionService extends ChangeNotifier {
         const Duration(seconds: _bufferHealthTimeoutSeconds),
         () {
           final last = _lastBufferChunkAt;
-          if (last == null ||
-              DateTime.now().difference(last).inSeconds >=
-                  _bufferHealthTimeoutSeconds) {
+          final startedAt = _bufferStreamStartedAt;
+          final receivedAny = startedAt != null &&
+              last != null &&
+              last.isAfter(startedAt);
+          if (!receivedAny) {
             debugPrint(
               '[VoiceDetection] Android buffer silent for '
               '${_bufferHealthTimeoutSeconds}s — mic conflict suspected, '
@@ -778,6 +862,20 @@ class VoiceDetectionService extends ChangeNotifier {
               '[VoiceDetection] Voice activation will remain dormant on '
               'Android (Phase 5b needed)',
             );
+            // Most important Sentry signal of Phase 7: which OEMs hit
+            // the parallel-mic conflict. Tagged via the global
+            // device.model scope tag set in main.dart.
+            unawaited(Sentry.captureMessage(
+              'Android mic conflict suspected',
+              level: SentryLevel.warning,
+              withScope: (scope) {
+                scope.setExtra(
+                  'health_timeout_seconds',
+                  _bufferHealthTimeoutSeconds,
+                );
+                scope.setExtra('chunks_received', _bufferChunksReceived);
+              },
+            ));
             unawaited(_stopAndroidBufferStream());
           }
         },
@@ -786,6 +884,11 @@ class VoiceDetectionService extends ChangeNotifier {
       debugPrint(
         '[VoiceDetection] Android parallel buffer stream started',
       );
+      Sentry.addBreadcrumb(Breadcrumb(
+        category: 'voice_detection',
+        level: SentryLevel.info,
+        message: 'Android parallel buffer stream started',
+      ));
     } catch (e, stack) {
       debugPrint(
         '[VoiceDetection] Failed to start Android buffer stream: $e\n$stack',
@@ -794,6 +897,15 @@ class VoiceDetectionService extends ChangeNotifier {
         '[VoiceDetection] Voice activation will remain dormant on Android '
         '(Phase 5b needed)',
       );
+      unawaited(Sentry.captureException(
+        e,
+        stackTrace: stack,
+        withScope: (scope) {
+          scope.setExtra('chunks_received', 0);
+          scope.setExtra('ms_since_start', 0);
+          scope.setExtra('phase', 'startStream');
+        },
+      ));
       _bufferStreamActive = false;
     }
   }
@@ -840,6 +952,8 @@ class VoiceDetectionService extends ChangeNotifier {
 
     _bufferStreamActive = false;
     _lastBufferChunkAt = null;
+    _bufferStreamStartedAt = null;
+    _bufferChunksReceived = 0;
     _androidRingBuffer.clear();
   }
 
